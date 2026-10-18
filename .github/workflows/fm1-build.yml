@@ -1,0 +1,144 @@
+# fm1-build: ONE shared, reusable workflow that builds an M-VAVE FM-1 / SMK-37 firmware from its own repository and
+# signs a build attestation for the packages. The Firmware Hub (thefirmwarehub.com) shows "Built from source" only for
+# packages attested by this workflow, at a reviewed tag of it. It is kept short on purpose, so anyone can review it.
+#
+# What it does, and nothing else:
+#   1. checks out the calling repository at the commit of the run (the firmware's source)
+#   2. installs Python + Pillow and JieLi's Linux toolchain from JieLi's own server (pkgman.jieliapp.com)
+#   3. optionally clones the JieLi AC79 SDK at a fixed tag from JieLi's gitee repository
+#   4. runs the repository's own build command (inputs.build) and, if given, its tests (inputs.test)
+#   5. attests the packages (inputs.packages) with actions/attest-build-provenance and, on a tag, publishes them
+#      as the release of that tag
+# The build command is the repository's: what it does is in that commit, for anyone to read.
+#
+# Use it from a firmware repository (.github/workflows/release.yml):
+#
+#   on:
+#     push:
+#       tags: ['v*']
+#   jobs:
+#     build:
+#       uses: zvenson/zp12/.github/workflows/fm1-build.yml@fm1-build-v1
+#       permissions:
+#         contents: write
+#         id-token: write
+#         attestations: write
+#       with:
+#         build: ./build.sh --release "${GITHUB_REF_NAME#v}"
+#         packages: build/*.fwsc
+name: fm1-build
+
+on:
+  workflow_call:
+    inputs:
+      build:
+        description: "the repository's build command (run in its root, bash)"
+        required: true
+        type: string
+      packages:
+        description: "the packages to attest and release (a glob, e.g. build/*.fwsc)"
+        required: true
+        type: string
+      test:
+        description: "the repository's test command (optional)"
+        required: false
+        type: string
+        default: ""
+      tests-block:
+        description: "whether a failing test stops the release"
+        required: false
+        type: boolean
+        default: true
+      sdk:
+        description: "clone the JieLi AC79 SDK (AC79NN_SDK_V1.2.1_2023-12-13) to ~/fw-AC79_AIoT_SDK"
+        required: false
+        type: boolean
+        default: true
+
+permissions: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write          # the release on a tag
+      id-token: write          # the attestation's signing identity
+      attestations: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683   # v4.2.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065   # v5.6.0
+        with:
+          python-version: '3.12'
+
+      - name: Python packages
+        run: python3 -m pip install Pillow
+
+      - name: JieLi Linux toolchain (pkgman.jieliapp.com)
+        run: |
+          mkdir -p ~/.jieli
+          curl -fL --retry 3 https://pkgman.jieliapp.com/s/linux-toolchain | tar -xJ -C ~/.jieli
+          TC="$(ls -d ~/.jieli/jieli-linux-toolchains-* | sort | tail -1)"
+          ln -sfn "$(basename "$TC")" ~/.jieli/toolchain
+          echo "JIELI_TOOLCHAIN=$HOME/.jieli/toolchain" >> "$GITHUB_ENV"
+          echo "toolchain: $(basename "$TC")"
+
+      - name: JieLi AC79 SDK (gitee.com, a fixed tag)
+        if: inputs.sdk
+        run: |
+          for i in 1 2 3; do                     # (gitee.com drops a clone now and then: try again)
+            git clone --depth 1 --branch AC79NN_SDK_V1.2.1_2023-12-13 \
+                https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git ~/fw-AC79_AIoT_SDK && break
+            rm -rf ~/fw-AC79_AIoT_SDK
+            sleep 20
+          done
+          test -d ~/fw-AC79_AIoT_SDK
+          echo "AC79_SDK=$HOME/fw-AC79_AIoT_SDK" >> "$GITHUB_ENV"
+
+      - name: Build (the repository's own command)
+        shell: bash
+        env:
+          BUILD: ${{ inputs.build }}
+        run: eval "$BUILD"
+
+      - name: Tests (the repository's own command)
+        if: inputs.test != ''
+        continue-on-error: ${{ !inputs.tests-block }}
+        shell: bash
+        env:
+          TEST: ${{ inputs.test }}
+        run: eval "$TEST"
+
+      - name: The packages and their SHA-256
+        id: pkgs
+        shell: bash
+        env:
+          PACKAGES: ${{ inputs.packages }}
+        run: |
+          shopt -s nullglob
+          files=($PACKAGES)
+          [ ${#files[@]} -gt 0 ] || { echo "no package matches: $PACKAGES"; exit 1; }
+          sha256sum "${files[@]}" | tee SHA256SUMS
+
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be   # v2.4.0
+        with:
+          subject-path: ${{ inputs.packages }}
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02   # v4.6.2
+        with:
+          name: packages
+          path: |
+            ${{ inputs.packages }}
+            SHA256SUMS
+          if-no-files-found: error
+
+      - name: Release (tags only)
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8   # v2.3.2
+        with:
+          files: |
+            ${{ inputs.packages }}
+            SHA256SUMS
+          generate_release_notes: true
