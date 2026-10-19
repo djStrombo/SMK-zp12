@@ -1,7 +1,7 @@
 <p align="center"><a href="https://zp12.designburgapps.com/"><img src="web/img/zp12-logo.svg" width="560" alt="zp12 sampling drums"></a></p>
 
 <p align="center">
-  <a href="https://zp12.designburgapps.com/install/"><img src="https://img.shields.io/badge/firmware-2.4.3-c82e32" alt="firmware 2.4.3"></a>
+  <a href="https://zp12.designburgapps.com/install/"><img src="https://img.shields.io/badge/firmware-2.4.4-c82e32" alt="firmware 2.4.4"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-263e70" alt="GPL-3.0"></a>
   <img src="https://img.shields.io/badge/device-M--VAVE%20FM--1-1e3060" alt="M-VAVE FM-1">
   <img src="https://img.shields.io/badge/install-Chrome%20%2F%20Edge%2C%20USB-56627e" alt="Chrome / Edge over USB">
@@ -9,7 +9,7 @@
 
 <p align="center">
   <b><a href="https://zp12.designburgapps.com/">Website</a></b> ·
-  <b><a href="https://zp12.designburgapps.com/install/">Install 2.4.3</a></b> ·
+  <b><a href="https://zp12.designburgapps.com/install/">Install 2.4.4</a></b> ·
   <a href="https://zp12.designburgapps.com/editor/">Sample editor (sample + drop)</a> ·
   <a href="https://zp12.designburgapps.com/backup/">Backup</a> ·
   <a href="https://zp12.designburgapps.com/#cheatsheet">Cheat sheet</a> (<a href="https://zp12.designburgapps.com/zp12-cheat-sheet.pdf">PDF</a>) ·
@@ -32,7 +32,7 @@ A 12-bit sampling drum machine for the **M-VAVE FM-1**: 32 sounds at 26.04 kHz (
 without interpolation, eight output channels with their filters, a panel-style screen. Inspired by the
 12-bit samplers of the 80s; their names are trademarks of their owners, no affiliation.
 
-> **Status: 2.4.3** (2026-10-19). Install: **https://zp12.designburgapps.com/install/** · Sample editor (now with
+> **Status: 2.4.4** (2026-10-19). Install: **https://zp12.designburgapps.com/install/** · Sample editor (now with
 > sampling in the browser): **https://zp12.designburgapps.com/editor/** · Backup: **https://zp12.designburgapps.com/backup/** ·
 > Cheat sheet: **https://zp12.designburgapps.com/#cheatsheet** ([PDF](https://zp12.designburgapps.com/zp12-cheat-sheet.pdf)).
 >
@@ -48,6 +48,7 @@ without interpolation, eight output channels with their filters, a panel-style s
   channel (fader, filter, mute). Hold pads while turning: they all take the group ("4 PADS CHOP 1").
   Pads on one position (A1, B1, C1, D1) cut each other as before. The editor's **Chop to pads** sets the group for
   you (Cut each other: group 1 unless you pick another). Why: chops on A1–A8 rang out over each other.
+- **2.4.4**: the update loader shows what it does, in the Firmware Hub's look (as OberVave and Shine On): ZP12, UPDATE MODE with a running light while it waits, WRITING with 20 segments and the percent, UPDATE FAILED, thefirmwarehub.com; the idea from Skiff (illuminus5). Tested on the FM-1.
 - **2.4.3**: the FM-1's **TRS MIDI IN** jack works: a keyboard, pads or a drum machine through a TRS-to-DIN adapter
   plays the pads (notes 36–67) and picks the loops (Program Change), as USB-MIDI does (if nothing plays, try the other
   adapter type, A or B). Before, only USB-MIDI reached zp12.
