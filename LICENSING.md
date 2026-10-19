@@ -10,6 +10,10 @@ Hügelton Sample Pack: its sampled drum kit is made of CC0 recordings (`assets/s
 
 Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 
+The update loader's screen (`firmware/loader/ldr_screen.c`, `tests/ldr_screen_test.c`): Copyright (C) 2026 zvenson (the
+Firmware Hub's look, first in OberVave); the idea, a loader that draws, its 5 x 7 letters and the order of things from
+[Skiff](https://github.com/illuminus5/skiff) by illuminus5, GPL-3.0.
+
 ## What is code (GPL-3.0-only)
 
 Every file in this tree that carries an `SPDX-License-Identifier: GPL-3.0-only` header:

@@ -1,5 +1,9 @@
 # zp12 TODO
 
+## 2.4.3: the update loader's screen (2026-10-19)
+
+- Done: `firmware/loader/ldr_screen.c` (the hub's look, as OberVave 1.5.3; Skiff's idea), installed on the user's FM-1.
+
 ## 2.4.2: a fix (2026-10-14)
 - The start screen's text ("12-bit sampling drums  " + the version, 29 bytes at 2.4.1) no longer runs past its
   buffer (ui_splash b[24] -> b[32], a compile-time check that it fits); found by the browser simulator. Also EDIT > WAVE:
