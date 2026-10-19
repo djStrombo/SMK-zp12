@@ -336,9 +336,13 @@ const IS_OTA = (id) => /^ota-/i.test(id.model);
 // firmware (the stock updater's loader) is never written: its loader may lay the image out differently.
 const OUR_LOADER = (id) => /^ota-FM-1_9\d\d$/i.test(id.text);
 // the MIDI ports the installer may probe (never other gear): the FM-1 under SLOOP / Felucca ("Felucca"), under
-// CLIPPER ("Clipper"), under a firmware named after itself ("SLOOP"), the update loaders, and the names
+// CLIPPER ("Clipper"), under a firmware named after itself ("SLOOP", "ETCH"), the update loaders, and the names
 // Windows / macOS give the stock firmware (as SLOOP 2.6's fm1ota.js)
-const FM1_PORT = /fm-1|felucca|sloop|clipper|ota|composite|sinco|usb-midi/i;
+const FM1_PORT = /fm-1|felucca|sloop|clipper|etch|ota|composite|sinco|usb-midi/i;
+// the ports of a MIDIInputMap / MIDIOutputMap as an array: by forEach, as iOS Web MIDI apps (Web MIDI Browser)
+// hand out maps whose values() is no iterable, so [...map.values()] and for..of throw there
+// (some hand the arguments over as (key, port): the port is whichever is an object)
+const ports = (map) => { const a = []; map.forEach((x, y) => a.push(x && typeof x === "object" ? x : y)); return a; };
 
 // errors carry a code the pages translate: notfound, model, stopped, noloader, lost, noreturn,
 // mismatch (detail: the identity the device reports), badreq, foreign (detail: the loader's identity)
@@ -443,8 +447,8 @@ class Updater {
 
   // every in/out pair with the same port name that answers the handshake
   async find(filter) {
-    const outs = [...this.access.outputs.values()];
-    for (const input of this.access.inputs.values()) {
+    const outs = ports(this.access.outputs);
+    for (const input of ports(this.access.inputs)) {
       if (input.state === "disconnected") continue;
       if (!FM1_PORT.test(input.name || "")) continue;   // never probe other gear
       const output = outs.find((o) => o.name === input.name) || (outs.length === 1 ? outs[0] : null);
@@ -460,7 +464,7 @@ class Updater {
 
   // the MIDI inputs there are, for the "not found" message: " (MIDI: a, b)" (a port the installer skipped shows)
   seen() {
-    const names = [...this.access.inputs.values()].filter((p) => p.state !== "disconnected").map((p) => p.name || "?");
+    const names = ports(this.access.inputs).filter((p) => p.state !== "disconnected").map((p) => p.name || "?");
     return names.length ? ` (MIDI: ${names.join(", ")})` : " (MIDI: none)";
   }
 
@@ -519,7 +523,15 @@ class Updater {
     step("loader");
     await sleep(3000);
     const ota = await this.waitFor(IS_OTA, 30000);
-    if (!ota) throw fail("noloader", "the update loader did not appear. Replug the USB cable and press Install again: the device stays in update mode until it is finished.");
+    if (!ota) {
+      // what answers instead, for the report: the FM-1 back in a firmware (the running one did not start the loader) or nothing
+      const now = await this.find(() => true);
+      if (now) now.link.close();
+      const why = `step 1: ${s1.served} reads; ${now ? `the FM-1 restarted as ${now.id.text}, not in update mode` : "no FM-1 answers"}`;
+      throw fail("noloader", now
+        ? `the update loader did not appear (${why})${this.seen()}. Hold OCT− while switching on to start it in update mode, then press Install again.`
+        : `the update loader did not appear (${why})${this.seen()}. Replug the USB cable and press Install again: the device stays in update mode until it is finished.`, now ? now.id.text : "");
+    }
     const s2 = await this.write(ota, image, step);
     if (!s2.finished) throw fail(s2.lost ? "lost" : "stopped", `the loader ${s2.lost ? "was disconnected" : "stopped"} after ${s2.served} requests. Replug and press Install again to resume.`);
     step("reboot");
@@ -551,6 +563,13 @@ class Updater {
     if (!OUR_LOADER(ota.id) && !opts.product) {
       ota.link.close();
       throw fail("foreign", `the FM-1 is in the update mode of another firmware (${ota.id.text}): finish that update with its own updater`, ota.id.text);
+    }
+    // the loader's own device, as the package's (ota-FM-1 for an FM-1 package): another device in update mode on the same
+    // USB (an SMK-37: an FM-1 image there erases its calibration) is never written, whatever the package
+    const [model] = (opts.product || "FM-1_").split("_");
+    if (ota.id.model.replace(/^ota-/i, "") !== model) {
+      ota.link.close();
+      throw fail("model", `the device in update mode is ${ota.id.text}, the package is for ${opts.product || "the FM-1"}: nothing was written`, ota.id.text);
     }
     const step = onStep || (() => {});
     if (!(await this.write(ota, image, step)).finished) return false;
@@ -653,7 +672,7 @@ const sayK = (k, arg = "") => { lastKey = k; lastArg = arg; $("status").textCont
 const say = (txt) => { lastKey = null; $("status").textContent = txt; };
 const log = (t) => { $("log").textContent += t + "\n"; };
 let image = null;
-const meta = {"version": "2.4.2", "product": "FM-1_974", "pkg": "firmware/zp12-2.4.2.fwsc", "sha256": "dd05aec856d37b6a76355dc5dcf57b8103936dff9cfc2515576d8212090e299e"};
+const meta = {"version": "2.4.3", "product": "FM-1_974", "pkg": "firmware/zp12-2.4.3.fwsc", "sha256": "40f58227f0d46e25b70f95b67a3502b213ec8c3b45cf734cd3c654219aac23ec"};
 
 let writing = false, stock = null;
 const lockAll = (on) => {
