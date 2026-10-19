@@ -27,11 +27,12 @@ static volatile uint32_t fm1_ms;
 #define FELUCCA_OTA 1
 #define FELUCCA_CDC 0
 #define FELUCCA_UAC 0
-#define FELUCCA_UART 0
+#define FELUCCA_UART 1                         /* the TRS MIDI IN jack (midi_uart.c, sloopDX's) */
 #ifndef FELUCCA_ID
 #define FELUCCA_ID "FM-1_970"                   /* package identity: 97N = zp12 build N */
 #endif
 #include "usb.c"
+#include "midi_uart.c"
 
 /* ---- flash: read anywhere, erase / program only the update's staging area (saving comes later) */
 /* (the app writes Felucca's store, the update staging and, for the web tools, the free rooms above it:
@@ -136,6 +137,8 @@ void fm1_timer5_irq(void)
     }
     if (sub % 5u == 0u)
         usb_poll();
+    if (sub % 5u == 2u)
+        uart_midi_poll();                       /* 2 kHz: <= ~7 bytes per call at 31250 baud */
     if (++sub == 10u)
         sub = 0;
 }
@@ -337,7 +340,7 @@ static void zp12_main(void)
             if ((d = fm1_enc_take(6)) != 0)
                 ui_preset(d);
         }
-        while (mi_r != mi_w) {                          /* USB MIDI in: notes 36..67 play the 32 pads, */
+        while (mi_r != mi_w) {                          /* MIDI in (USB, TRS): notes 36..67 play the 32 pads, */
             uint32_t pk = midi_in_q[mi_r % MQ], st = (pk >> 8) & 0xF0u, nt = (pk >> 16) & 0x7Fu, vel = pk >> 24 & 0x7Fu;
             mi_r++;                                     /* Program Change 0..15 picks loop 1..16 (as a black key) */
             if (st == 0x90u && vel && nt >= 36u && nt < 68u)
@@ -434,6 +437,7 @@ void fm1_cstart(void)
     fm1_adc_init();
     fm1_audio_init(abuf, HALF_WORDS, isr_alnk0, 3);   /* (abuf is zero: .bss) */
     usb_start();
+    uart_midi_init();                           /* before TIMER5: PORTH read-modify-write */
     fm1_timer5_start(isr_timer5, 4);
     fm1_guard_lock_top();
     fm1_irq_enable_all();
