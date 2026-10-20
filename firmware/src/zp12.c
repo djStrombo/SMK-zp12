@@ -142,8 +142,14 @@ static uint8_t smk_chord_mode = 0;
 static int8_t smk_kbd_oct = 0;
 static uint8_t smk_midi_enc_bank = 0;
 static uint8_t smk_midi_fad_bank = 0;
-static uint8_t smk_midi_pad_bank = 0;
 static uint32_t smk_bt_flash_until = 0;
+
+static const char *const ARP_MODE_NAMES[4] = {
+    "ARP: UP",
+    "ARP: DOWN",
+    "ARP: UP/DN",
+    "ARP: RANDOM"
+};
 
 static const char *const SCALE_NAMES[5] = {
     "SCALE: OFF",
@@ -339,12 +345,21 @@ void fm1_alnk0_irq(void)                       /* via isr_alnk0 (hal/fm1_isr.S) 
             o[i] = 0;
         for (b = 0; b < HALF_FRAMES; b += SP_BLK) {
             sq_block();                                     /* the sequencer's hits of this block */
-            sp_render(o + 2u * b);
+#if BOARD_SMK37
+            if (!smk_midi_mode)
+#endif
+                sp_render(o + 2u * b);
         }
-        sp_punch(o, HALF_FRAMES);                           /* FX held + white key 1-4: roll, reverse, tape stop */
-        for (i = 0; i < HALF_WORDS; i++) {
-            o[i] = sp_out((o[i] * master_q12) >> 12) << 8;   /* (-6 dB, a soft knee: sp_core.c) */
+#if BOARD_SMK37
+        if (!smk_midi_mode) {
+#endif
+            sp_punch(o, HALF_FRAMES);                           /* FX held + white key 1-4: roll, reverse, tape stop */
+            for (i = 0; i < HALF_WORDS; i++) {
+                o[i] = sp_out((o[i] * master_q12) >> 12) << 8;   /* (-6 dB, a soft knee: sp_core.c) */
+            }
+#if BOARD_SMK37
         }
+#endif
         fm1_audio_ack_half();
     }
 }
@@ -439,22 +454,32 @@ static void zp12_main(void)
         prev_notes = n;
         {   /* SEL held: the faders 5-8; LFO held: ERASE (the pads held lose their hits as the playhead passes) */
             uint32_t bt = fm1_in.buttons, er = 0, k;
-            ui.held = bt;                               /* (SAVE held + a black key: key_down) */
-            ui.keys = n;                                /* (EDIT > OUT: CHOP turned sets the pads held) */
-            if ((bt >> B_LFO) & 1u)
-                for (k = 0; k < 27u; k++)
-                    if ((n >> k) & 1u) {
-                        uint32_t pd = ui.multi ? ui.sel : key_pad(k);
-                        if (pd < 32u) er |= 1u << pd;
-                    }
-            sq.erase = er;
-            {   /* FX held: white keys 1-4 punch in, the last one held wins (sp_punch.c); OCT- / OCT+ throw */
-                int32_t px = -1;
-                if ((bt >> B_FX) & 1u)
+#if BOARD_SMK37
+            if (smk_midi_mode) {
+                ui.held = 0;
+                sq.erase = 0;
+                pn.req = -1;
+                sp_thr_req = 0;
+            } else
+#endif
+            {
+                ui.held = bt;                               /* (SAVE held + a black key: key_down) */
+                ui.keys = n;                                /* (EDIT > OUT: CHOP turned sets the pads held) */
+                if ((bt >> B_LFO) & 1u)
                     for (k = 0; k < 27u; k++)
-                        if ((n >> k) & 1u && white_of(k) < PN_NFX) px = (int32_t)white_of(k);
-                pn.req = (int8_t)px;
-                sp_thr_req = (bt >> B_FX) & 1u ? (uint8_t)((bt >> B_OCTDN & 1u) | (bt >> B_OCTUP & 1u) << 1) : 0u;
+                        if ((n >> k) & 1u) {
+                            uint32_t pd = ui.multi ? ui.sel : key_pad(k);
+                            if (pd < 32u) er |= 1u << pd;
+                        }
+                sq.erase = er;
+                {   /* FX held: white keys 1-4 punch in, the last one held wins (sp_punch.c); OCT- / OCT+ throw */
+                    int32_t px = -1;
+                    if ((bt >> B_FX) & 1u)
+                        for (k = 0; k < 27u; k++)
+                            if ((n >> k) & 1u && white_of(k) < PN_NFX) px = (int32_t)white_of(k);
+                    pn.req = (int8_t)px;
+                    sp_thr_req = (bt >> B_FX) & 1u ? (uint8_t)((bt >> B_OCTDN & 1u) | (bt >> B_OCTUP & 1u) << 1) : 0u;
+                }
             }
 #if BOARD_SMK37
             if (!smk_midi_mode) {
@@ -511,8 +536,33 @@ static void zp12_main(void)
                     }
                     if ((uint32_t)(fm1_ms - smk_arp_last_ms) >= interval_ms) {
                         smk_arp_last_ms = fm1_ms;
-                        if (smk_arp_idx >= held_cnt) smk_arp_idx = 0;
-                        uint32_t ki = held_keys[smk_arp_idx++];
+                        uint32_t ki;
+                        if (smk_arp_mode == 1) {
+                            /* DOWN */
+                            uint32_t step = smk_arp_idx % held_cnt;
+                            ki = held_keys[held_cnt - 1u - step];
+                            smk_arp_idx++;
+                        } else if (smk_arp_mode == 2) {
+                            /* UP / DOWN */
+                            if (held_cnt <= 1) {
+                                ki = held_keys[0];
+                            } else {
+                                uint32_t cycle = (held_cnt - 1u) * 2u;
+                                uint32_t step = smk_arp_idx % cycle;
+                                ki = (step < held_cnt) ? held_keys[step] : held_keys[cycle - step];
+                            }
+                            smk_arp_idx++;
+                        } else if (smk_arp_mode == 3) {
+                            /* RANDOM */
+                            uint32_t rnd = (uint32_t)(fm1_ms * 1103515245u + 12345u) >> 16;
+                            ki = held_keys[rnd % held_cnt];
+                            smk_arp_idx++;
+                        } else {
+                            /* UP */
+                            uint32_t step = smk_arp_idx % held_cnt;
+                            ki = held_keys[step];
+                            smk_arp_idx++;
+                        }
                         int32_t m_note = 48 + (int32_t)ki + ((int32_t)smk_kbd_oct * 12);
                         m_note = sp_clamp(m_note, 0, 127);
                         int32_t q_note = smk_quantize_note(m_note);
@@ -622,16 +672,27 @@ static void zp12_main(void)
         }
 #endif
         b = fm1_input_edges(&rel);
-        b = ui_holds(fm1_in.buttons, b, rel);           /* REC held: CLEAR; SAVE tapped / held + a black key */
+#if BOARD_SMK37
+        if (smk_midi_mode) {
+            /* In MIDI mode: strip all ZP-12 synthesis/menu action buttons so they never enter ui_holds */
+            b &= ~((1u << B_REC) | (1u << B_SAVE) | (1u << B_FX) | (1u << B_GLO) | (1u << B_SEQ) | (1u << B_EDIT) | (1u << B_HOME));
+            rel &= ~((1u << B_REC) | (1u << B_SAVE) | (1u << B_FX) | (1u << B_GLO) | (1u << B_SEQ) | (1u << B_EDIT) | (1u << B_HOME));
+        } else
+#endif
+        {
+            b = ui_holds(fm1_in.buttons, b, rel);           /* REC held: CLEAR; SAVE tapped / held + a black key */
+        }
 #if BOARD_SMK37
         /* Hold states for modifier buttons */
         uint8_t rep_held = (fm1_in.buttons >> ACT_REPEAT) & 1u;
         uint8_t scl_held = (fm1_in.buttons >> ACT_SCALE) & 1u;
         uint8_t cho_held = (fm1_in.buttons >> ACT_CHORD) & 1u;
         uint8_t glo_held = (fm1_in.buttons >> ACT_GLO) & 1u;
+        uint8_t arp_held = (fm1_in.buttons >> ACT_ARP) & 1u;
         static uint8_t rep_adjusted = 0;
         static uint8_t scl_adjusted = 0;
         static uint8_t cho_adjusted = 0;
+        static uint8_t arp_adjusted = 0;
 
         /* PATCH + PARA hold (>= 600ms) toggles MIDI Controller Mode (Local Control Off) */
         {
@@ -683,34 +744,61 @@ static void zp12_main(void)
             ui.force = 1;
         }
 
-        /* KNOB BANK (Button 0 / ACT_SEL):
-         * In ZP-12 mode: toggle Bank AB vs CD (ui.pair ^= 1)
-         * In MIDI mode: toggle Knob CC Bank 1 vs 2 (smk_midi_enc_bank ^= 1) */
-        if (b & (1u << ACT_SEL)) {
-            b &= ~(1u << ACT_SEL);
-            if (smk_midi_mode) {
-                smk_midi_enc_bank ^= 1u;
-                ui_say(smk_midi_enc_bank ? "KNOBS: BANK 2" : "KNOBS: BANK 1");
+        /* KNOB BANK (Button 0 / ACT_SEL) and FADER BANK (Button 1 / ACT_FBANK):
+         * In MIDI mode:
+         *   Holding both together -> Toggle Pad Bank (Bank A 36-51 <-> Bank B 52-67)
+         *   Tapping Knob Bank alone -> Toggle Knob Bank (1 <-> 2)
+         *   Tapping Fader Bank alone -> Toggle Fader Bank (1 <-> 2)
+         * In ZP-12 mode:
+         *   Knob Bank -> Toggle Bank AB vs CD (ui.pair ^= 1)
+         *   Fader Bank -> Toggle Faders 1-4 vs 5-8 (smk_fader_bank ^= 1)
+         */
+        static uint8_t bank_combo_used = 0;
+        static uint32_t prev_raw_btn = 0;
+        uint32_t raw_now = fm1_in.buttons;
+        uint32_t raw_released = prev_raw_btn & ~raw_now;
+        prev_raw_btn = raw_now;
+
+        if (smk_midi_mode) {
+            uint32_t b_knob = (raw_now >> ACT_SEL) & 1u;
+            uint32_t b_fader = (raw_now >> ACT_FBANK) & 1u;
+            if (b_knob && b_fader) {
+                if (!bank_combo_used) {
+                    bank_combo_used = 1;
+                    smk_midi_pad_bank ^= 1u;
+                    ui_say(smk_midi_pad_bank ? "PADS: BANK B (52-67)" : "PADS: BANK A (36-51)");
+                    ui.force = 1;
+                }
             } else {
+                if (!bank_combo_used) {
+                    if ((raw_released >> ACT_SEL) & 1u) {
+                        smk_midi_enc_bank ^= 1u;
+                        ui_say(smk_midi_enc_bank ? "KNOBS: BANK 2" : "KNOBS: BANK 1");
+                        ui.force = 1;
+                    }
+                    if ((raw_released >> ACT_FBANK) & 1u) {
+                        smk_midi_fad_bank ^= 1u;
+                        ui_say(smk_midi_fad_bank ? "FADERS: BANK 2" : "FADERS: BANK 1");
+                        ui.force = 1;
+                    }
+                }
+                if (!b_knob && !b_fader)
+                    bank_combo_used = 0;
+            }
+            b &= ~((1u << ACT_SEL) | (1u << ACT_FBANK));
+        } else {
+            if (b & (1u << ACT_SEL)) {
+                b &= ~(1u << ACT_SEL);
                 ui.pair ^= 1u;
                 ui_say(ui.pair ? "BANKS C+D" : "BANKS A+B");
+                ui.force = 1;
             }
-            ui.force = 1;
-        }
-
-        /* FADER BANK (Button 1 / ACT_FBANK):
-         * In ZP-12 mode: toggle Faders 1-4 vs 5-8 (smk_fader_bank ^= 1)
-         * In MIDI mode: toggle Fader CC Bank 1 vs 2 (smk_midi_fad_bank ^= 1) */
-        if (b & (1u << ACT_FBANK)) {
-            b &= ~(1u << ACT_FBANK);
-            if (smk_midi_mode) {
-                smk_midi_fad_bank ^= 1u;
-                ui_say(smk_midi_fad_bank ? "FADERS: BANK 2" : "FADERS: BANK 1");
-            } else {
+            if (b & (1u << ACT_FBANK)) {
+                b &= ~(1u << ACT_FBANK);
                 smk_fader_bank ^= 1u;
                 ui_say(smk_fader_bank ? "FADERS 5-8" : "FADERS 1-4");
+                ui.force = 1;
             }
-            ui.force = 1;
         }
 
         /* < (ACT_PREV / Button 2): */
@@ -729,14 +817,25 @@ static void zp12_main(void)
                 cho_adjusted = 1;
                 if (smk_chord_mode != 0 && !smk_midi_mode) ui.multi = 1;
                 ui_say(CHORD_NAMES[smk_chord_mode]);
+            } else if (smk_midi_mode && arp_held) {
+                smk_arp_mode = (smk_arp_mode + 3) % 4;
+                arp_adjusted = 1;
+                ui_say(ARP_MODE_NAMES[smk_arp_mode]);
             } else if (smk_midi_mode && glo_held) {
-                smk_midi_ch = ((smk_midi_ch + 15) % 16);
-                char msg[16] = "KBD CH ";
-                num(msg + 7, smk_midi_ch + 1, smk_midi_ch + 1 >= 10 ? 2 : 1, 0);
-                ui_say(msg);
+                uint8_t bt_down = (fm1_in.buttons >> 11) & 1u;
+                if (bt_down) {
+                    smk_midi_pad_ch = ((smk_midi_pad_ch + 15) % 16);
+                    char msg[16] = "PAD CH ";
+                    num(msg + 7, smk_midi_pad_ch + 1, smk_midi_pad_ch + 1 >= 10 ? 2 : 1, 0);
+                    ui_say(msg);
+                } else {
+                    smk_midi_ch = ((smk_midi_ch + 15) % 16);
+                    char msg[16] = "KBD CH ";
+                    num(msg + 7, smk_midi_ch + 1, smk_midi_ch + 1 >= 10 ? 2 : 1, 0);
+                    ui_say(msg);
+                }
             } else if (smk_midi_mode) {
-                smk_midi_pad_bank = 0;
-                ui_say("PADS: BANK A (36-51)");
+                /* In MIDI mode, arrows alone without modifiers do nothing */
             } else {
                 if (ui.steps) {
                     if (ui.step_bar) ui.step_bar--;
@@ -765,14 +864,25 @@ static void zp12_main(void)
                 cho_adjusted = 1;
                 if (smk_chord_mode != 0 && !smk_midi_mode) ui.multi = 1;
                 ui_say(CHORD_NAMES[smk_chord_mode]);
+            } else if (smk_midi_mode && arp_held) {
+                smk_arp_mode = (smk_arp_mode + 1) % 4;
+                arp_adjusted = 1;
+                ui_say(ARP_MODE_NAMES[smk_arp_mode]);
             } else if (smk_midi_mode && glo_held) {
-                smk_midi_ch = ((smk_midi_ch + 1) % 16);
-                char msg[16] = "KBD CH ";
-                num(msg + 7, smk_midi_ch + 1, smk_midi_ch + 1 >= 10 ? 2 : 1, 0);
-                ui_say(msg);
+                uint8_t bt_down = (fm1_in.buttons >> 11) & 1u;
+                if (bt_down) {
+                    smk_midi_pad_ch = ((smk_midi_pad_ch + 1) % 16);
+                    char msg[16] = "PAD CH ";
+                    num(msg + 7, smk_midi_pad_ch + 1, smk_midi_pad_ch + 1 >= 10 ? 2 : 1, 0);
+                    ui_say(msg);
+                } else {
+                    smk_midi_ch = ((smk_midi_ch + 1) % 16);
+                    char msg[16] = "KBD CH ";
+                    num(msg + 7, smk_midi_ch + 1, smk_midi_ch + 1 >= 10 ? 2 : 1, 0);
+                    ui_say(msg);
+                }
             } else if (smk_midi_mode) {
-                smk_midi_pad_bank = 1;
-                ui_say("PADS: BANK B (52-67)");
+                /* In MIDI mode, arrows alone without modifiers do nothing */
             } else {
                 if (ui.steps) {
                     const sq_seg_t *g = &sq_seg[sq.seg % SQ_NSEG];
@@ -787,18 +897,28 @@ static void zp12_main(void)
         }
 
         /* ARP button (ACT_ARP / Button 6):
-         * In ZP-12 mode: toggle MULTI PITCH (ui.multi ^= 1)
-         * In MIDI mode: toggle MIDI Arpeggiator */
-        if (b & (1u << ACT_ARP)) {
-            b &= ~(1u << ACT_ARP);
-            if (smk_midi_mode) {
-                smk_midi_arp_on ^= 1u;
-                ui_say(smk_midi_arp_on ? "ARP: ON (1/16)" : "ARP: OFF");
-            } else {
-                ui.multi ^= 1u;
-                ui_say(ui.multi ? "MULTI PITCH: ON" : "MULTI PITCH: OFF");
+         * Tap toggles ON/OFF, Hold + < / > or K5 selects Arp Mode */
+        {
+            static uint32_t arp_down_ms = 0;
+            if (b & (1u << ACT_ARP)) {
+                b &= ~(1u << ACT_ARP);
+                arp_down_ms = fm1_ms ? fm1_ms : 1;
+                arp_adjusted = 0;
             }
-            ui.force = 1;
+            if (rel & (1u << ACT_ARP)) {
+                if (arp_down_ms && !arp_adjusted) {
+                    if (smk_midi_mode) {
+                        smk_midi_arp_on ^= 1u;
+                        ui_say(smk_midi_arp_on ? "ARP: ON (1/16)" : "ARP: OFF");
+                    } else {
+                        ui.multi ^= 1u;
+                        ui_say(ui.multi ? "MULTI PITCH: ON" : "MULTI PITCH: OFF");
+                    }
+                    ui.force = 1;
+                }
+                arp_down_ms = 0;
+                arp_adjusted = 0;
+            }
         }
 
         /* SCALE button: Tap cycles scale, Hold (>= 600ms) turns OFF */
@@ -889,6 +1009,10 @@ static void zp12_main(void)
             if (smk_midi_mode) {
                 sq.playing ^= 1u;
                 midi_out_event(sq.playing ? (0x05u | (0xFAu << 8)) : (0x05u | (0xFCu << 8)));
+                if (!sq.playing) {
+                    /* All notes off on pad channel */
+                    midi_out_event(0x0Bu | ((0xB0u | (smk_midi_pad_ch & 0x0Fu)) << 8) | (123u << 16) | (0u << 24));
+                }
                 ui_say(sq.playing ? "MIDI: START" : "MIDI: STOP");
                 ui.force = 1;
             } else {
@@ -899,14 +1023,19 @@ static void zp12_main(void)
         /* In MIDI mode: suppress all other synthesis / menu functions */
         if (smk_midi_mode) {
             b = 0;
+            rel = 0;
         }
 
-        /* BT button Tap Tempo: 4 taps, updates tempo */
+        /* BT button Tap Tempo: 4 taps, updates tempo (only if GLOBE is NOT held) */
         {
             static uint32_t tap_t[16], tap_n;
             while (smk_bt_taps) {
                 uint32_t t = fm1_ms;
                 smk_bt_taps--;
+                if (glo_held) {
+                    tap_n = 0;
+                    continue;
+                }
                 smk_bt_flash_until = t + 60u;
                 if (tap_n && t - tap_t[tap_n - 1u] > 2000u)
                     tap_n = 0;
@@ -1033,55 +1162,60 @@ static void zp12_main(void)
             }
         }
 #endif
-        if (b & (1u << B_FX)) {                         /* FX down: a punch-in layer while held; tapped, the FX pages */
-            ui.fx_used = 0;
-            b &= ~(1u << B_FX);
-        }
-        if (rel & (1u << B_FX) && !ui.fx_used)
-            button(B_FX);
-        if (b & (1u << B_GLO)) {                        /* GLO down: mute / solo on the white keys while held; tapped, the GLO pages */
-            ui.glo_used = 0;
-            b &= ~(1u << B_GLO);
-        }
-        if (rel & (1u << B_GLO) && !ui.glo_used)
-            button(B_GLO);
 #if BOARD_SMK37
-        if (b & (1u << B_SEQ)) {                        /* SEQ on SMK-37: Step grid -> SEQ 1 -> SEQ 2 -> SEQ 3 (SONG) */
-            b &= ~(1u << B_SEQ);
-            if (ui.steps) {
-                ui.steps = 0;
-                page(PG_SEG);
-            } else if (ui.page == PG_SEG) {
-                page(PG_SEG2);
-            } else if (ui.page == PG_SEG2) {
-                page(PG_SONG);
-            } else {
-                ui.steps = 1;
+        if (!smk_midi_mode)
+#endif
+        {
+            if (b & (1u << B_FX)) {                         /* FX down: a punch-in layer while held; tapped, the FX pages */
+                ui.fx_used = 0;
+                b &= ~(1u << B_FX);
             }
-            ui.force = 1;
-        }
+            if (rel & (1u << B_FX) && !ui.fx_used)
+                button(B_FX);
+            if (b & (1u << B_GLO)) {                        /* GLO down: mute / solo on the white keys while held; tapped, the GLO pages */
+                ui.glo_used = 0;
+                b &= ~(1u << B_GLO);
+            }
+            if (rel & (1u << B_GLO) && !ui.glo_used)
+                button(B_GLO);
+#if BOARD_SMK37
+            if (b & (1u << B_SEQ)) {                        /* SEQ on SMK-37: Step grid -> SEQ 1 -> SEQ 2 -> SEQ 3 (SONG) */
+                b &= ~(1u << B_SEQ);
+                if (ui.steps) {
+                    ui.steps = 0;
+                    page(PG_SEG);
+                } else if (ui.page == PG_SEG) {
+                    page(PG_SEG2);
+                } else if (ui.page == PG_SEG2) {
+                    page(PG_SONG);
+                } else {
+                    ui.steps = 1;
+                }
+                ui.force = 1;
+            }
 #else
-        if (b & (1u << B_SEQ)) {                        /* SEQ down: the step grid while held */
-            seq_down = fm1_ms;
-            seq_used = 0;
-            ui.steps = 1;
-            ui.force = 1;
-            b &= ~(1u << B_SEQ);
-        }
+            if (b & (1u << B_SEQ)) {                        /* SEQ down: the step grid while held */
+                seq_down = fm1_ms;
+                seq_used = 0;
+                ui.steps = 1;
+                ui.force = 1;
+                b &= ~(1u << B_SEQ);
+            }
 #endif
-        if (ui.steps && (b & ((1u << B_OCTDN) | (1u << B_OCTUP)) || down))
-            seq_used = 1;
-        for (i = 0; b; i++, b >>= 1)
-            if (b & 1u)
-                button(i);
+            if (ui.steps && (b & ((1u << B_OCTDN) | (1u << B_OCTUP)) || down))
+                seq_used = 1;
+            for (i = 0; b; i++, b >>= 1)
+                if (b & 1u)
+                    button(i);
 #if !BOARD_SMK37
-        if (rel & (1u << B_SEQ) && ui.steps) {          /* SEQ up: a short tap opens the SEQ pages */
-            ui.steps = 0;
-            ui.force = 1;
-            if ((uint32_t)(fm1_ms - seq_down) < 350u && !seq_used)
-                button(B_SEQ);
-        }
+            if (rel & (1u << B_SEQ) && ui.steps) {          /* SEQ up: a short tap opens the SEQ pages */
+                ui.steps = 0;
+                ui.force = 1;
+                if ((uint32_t)(fm1_ms - seq_down) < 350u && !seq_used)
+                    button(B_SEQ);
+            }
 #endif
+        }
         {   /* the LEDs: built aside, then swapped in (the scan never shows half of them) */
             uint32_t lb, lk, lg;
             ui_leds(&lb, &lk, &lg);
@@ -1102,24 +1236,46 @@ static void zp12_main(void)
             memcpy(fm1_led_dim, nd, sizeof nd);
 #else
             /* Direct physical button LED assignments - zero glitching */
-            smk_led_physical(0, smk_midi_mode ? (smk_midi_enc_bank != 0) : ui.pair);
-            smk_led_physical(1, smk_midi_mode ? (smk_midi_fad_bank != 0) : smk_fader_bank);
-            smk_led_physical(2, smk_midi_mode ? (smk_midi_pad_bank == 0) : 0);
-            smk_led_physical(3, smk_midi_mode ? (smk_midi_pad_bank == 1) : 0);
-            smk_led_physical(4, smk_kbd_oct < 0);
-            smk_led_physical(5, smk_kbd_oct > 0);
-            smk_led_physical(6, smk_midi_mode ? smk_midi_arp_on : ui.multi);
-            smk_led_physical(7, smk_root_note != 0);
-            smk_led_physical(8, smk_scale_mode != 0);
-            smk_led_physical(9, smk_chord_mode != 0);
-            smk_led_physical(10, smk_midi_mode ? glo_held : ((lb >> B_GLO) & 1u));
-            smk_led_physical(11, (sq.playing && (sq.beat & 1u)) || (fm1_ms < smk_bt_flash_until));
-            smk_led_physical(12, smk_midi_mode ? ((fm1_ms / 250u) & 1u) : ((lb >> B_HOME) & 1u));
-            smk_led_physical(13, smk_midi_mode ? 0 : ((lb >> B_EDIT) & 1u));
-            smk_led_physical(14, smk_midi_mode ? 0 : ((lb >> B_FX) & 1u));
-            smk_led_physical(15, smk_midi_mode ? 0 : ((lb >> B_SEQ) & 1u || ui.steps));
-            smk_led_physical(16, sq.playing);
-            smk_led_physical(17, sq.recording || ((sq.rec_arm || sq.dub_wait) && (fm1_ms / 250u) & 1u));
+            uint8_t slow_blink = (uint8_t)(((fm1_ms / 750u) & 1u) == 0u);
+            if (smk_midi_mode) {
+                smk_led_physical(0, smk_midi_enc_bank != 0);       /* KNOB BANK */
+                smk_led_physical(1, smk_midi_fad_bank != 0);       /* FADER BANK */
+                smk_led_physical(2, 0u);                            /* < */
+                smk_led_physical(3, 0u);                            /* > */
+                smk_led_physical(4, smk_kbd_oct < 0);               /* OCT- */
+                smk_led_physical(5, smk_kbd_oct > 0);               /* OCT+ */
+                smk_led_physical(6, smk_midi_arp_on);               /* ARP */
+                smk_led_physical(7, smk_root_note != 0);            /* NOTE REPEAT */
+                smk_led_physical(8, smk_scale_mode != 0);           /* SCALE */
+                smk_led_physical(9, smk_chord_mode != 0);           /* CHORD */
+                smk_led_physical(10, 1u);                           /* GLOBE: Solid ON constantly in MIDI mode */
+                smk_led_physical(11, ((fm1_in.buttons >> 11) & 1u) || (fm1_ms < smk_bt_flash_until) ? 1u : slow_blink); /* BT */
+                smk_led_physical(12, slow_blink);                   /* PATCH */
+                smk_led_physical(13, slow_blink);                   /* PARA */
+                smk_led_physical(14, slow_blink);                   /* FX */
+                smk_led_physical(15, slow_blink);                   /* SEQ */
+                smk_led_physical(16, sq.playing);                   /* SEQ PLAY */
+                smk_led_physical(17, slow_blink);                   /* SEQ REC */
+            } else {
+                smk_led_physical(0, ui.pair);
+                smk_led_physical(1, smk_fader_bank);
+                smk_led_physical(2, 0);
+                smk_led_physical(3, 0);
+                smk_led_physical(4, smk_kbd_oct < 0);
+                smk_led_physical(5, smk_kbd_oct > 0);
+                smk_led_physical(6, ui.multi);
+                smk_led_physical(7, smk_root_note != 0);
+                smk_led_physical(8, smk_scale_mode != 0);
+                smk_led_physical(9, smk_chord_mode != 0);
+                smk_led_physical(10, (lb >> B_GLO) & 1u);
+                smk_led_physical(11, (sq.playing && (sq.beat & 1u)) || (fm1_ms < smk_bt_flash_until));
+                smk_led_physical(12, (lb >> B_HOME) & 1u);
+                smk_led_physical(13, (lb >> B_EDIT) & 1u);
+                smk_led_physical(14, (lb >> B_FX) & 1u);
+                smk_led_physical(15, (lb >> B_SEQ) & 1u || ui.steps);
+                smk_led_physical(16, sq.playing);
+                smk_led_physical(17, sq.recording || ((sq.rec_arm || sq.dub_wait) && (fm1_ms / 250u) & 1u));
+            }
 
             /* WS2812 RGB Pad LEDs */
             {
@@ -1189,12 +1345,39 @@ static void zp12_main(void)
             for (i = 0; i < 8u; i++) {
                 if ((d = fm1_enc_take(i)) != 0) {
                     if (smk_midi_mode) {
+                        uint8_t bt_down = (fm1_in.buttons >> 11) & 1u;
                         if (i == 4 && glo_held) {
-                            /* K5 while holding GLOBE in MIDI mode: changes MIDI channel */
-                            smk_midi_ch = (uint8_t)((smk_midi_ch + (d > 0 ? 1 : 15)) % 16);
-                            char msg[16] = "KBD CH ";
-                            num(msg + 7, smk_midi_ch + 1, smk_midi_ch + 1 >= 10 ? 2 : 1, 0);
-                            ui_say(msg);
+                            if (bt_down) {
+                                smk_midi_pad_ch = (uint8_t)((smk_midi_pad_ch + (d > 0 ? 1 : 15)) % 16);
+                                char msg[16] = "PAD CH ";
+                                num(msg + 7, smk_midi_pad_ch + 1, smk_midi_pad_ch + 1 >= 10 ? 2 : 1, 0);
+                                ui_say(msg);
+                            } else {
+                                smk_midi_ch = (uint8_t)((smk_midi_ch + (d > 0 ? 1 : 15)) % 16);
+                                char msg[16] = "KBD CH ";
+                                num(msg + 7, smk_midi_ch + 1, smk_midi_ch + 1 >= 10 ? 2 : 1, 0);
+                                ui_say(msg);
+                            }
+                            ui.force = 1;
+                        } else if (i == 4 && arp_held) {
+                            smk_arp_mode = (smk_arp_mode + (d > 0 ? 1 : 3)) % 4;
+                            arp_adjusted = 1;
+                            ui_say(ARP_MODE_NAMES[smk_arp_mode]);
+                            ui.force = 1;
+                        } else if (i == 4 && rep_held) {
+                            smk_root_note = (smk_root_note + (d > 0 ? 1 : 11)) % 12;
+                            rep_adjusted = 1;
+                            ui_say(ROOT_NOTE_NAMES[smk_root_note]);
+                            ui.force = 1;
+                        } else if (i == 4 && scl_held) {
+                            smk_scale_mode = (smk_scale_mode + (d > 0 ? 1 : 4)) % 5;
+                            scl_adjusted = 1;
+                            ui_say(SCALE_NAMES[smk_scale_mode]);
+                            ui.force = 1;
+                        } else if (i == 4 && cho_held) {
+                            smk_chord_mode = (smk_chord_mode + (d > 0 ? 1 : 6)) % 7;
+                            cho_adjusted = 1;
+                            ui_say(CHORD_NAMES[smk_chord_mode]);
                             ui.force = 1;
                         } else {
                             static uint8_t smk_midi_enc_val[16];

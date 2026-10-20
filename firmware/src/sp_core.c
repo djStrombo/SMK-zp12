@@ -168,6 +168,21 @@ static uint32_t sp_lock_of(const sp_sound_t *s)
 /* hit sound k at velocity 1..127, `semis` semitones from its TUNE (MULTI PITCH), with a hit's lock (0: none) */
 static void sp_trigger_lk(uint32_t k, uint32_t vel, int32_t semis, uint32_t lk)
 {
+#if BOARD_SMK37
+    if (smk_midi_mode) {
+        static uint8_t sq_last_note[16];
+        uint32_t pad_idx = k % 16u;
+        uint32_t pad_base = smk_midi_pad_bank ? 52u : 36u;
+        int32_t note = sp_clamp((int32_t)(pad_base + pad_idx) + semis, 0, 127);
+        if (sq_last_note[pad_idx]) {
+            midi_out_event(0x08u | ((0x80u | (smk_midi_pad_ch & 0x0Fu)) << 8) | ((uint32_t)sq_last_note[pad_idx] << 16) | (0x40u << 24));
+        }
+        sq_last_note[pad_idx] = (uint8_t)note;
+        uint32_t v = vel ? vel : 100u;
+        midi_out_event(0x09u | ((0x90u | (smk_midi_pad_ch & 0x0Fu)) << 8) | ((uint32_t)note << 16) | (v << 24));
+        return;
+    }
+#endif
     const sp_sound_t *s = &sp_sound[k % SP_NSOUND];
     sp_ch_t *c;
     const sp_wave_t *w;
