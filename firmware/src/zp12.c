@@ -601,7 +601,6 @@ static void zp12_main(void)
                 }
             }
         }
-        }
 
         /* USB & TRS MIDI Wheels transmission */
         {
