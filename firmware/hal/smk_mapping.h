@@ -50,16 +50,18 @@
 #define ACT_KBD_OCTDN  20  /* Keyboard Octave Down (-3..+3) */
 #define ACT_KBD_OCTUP  21  /* Keyboard Octave Up (-3..+3) */
 
-/* Physical Encoders K1..K8 */
+/* Physical Encoders K1..K8: FM-1 order: SELECT, PRESET, ALGORITHM, VOLUME */
 #define ENC_ACT_NONE     0xFF
 #define ENC_ACT_KNOB1    0   /* Screen Knob 1 */
 #define ENC_ACT_KNOB2    1   /* Screen Knob 2 */
 #define ENC_ACT_KNOB3    2   /* Screen Knob 3 */
 #define ENC_ACT_KNOB4    3   /* Screen Knob 4 */
-#define ENC_ACT_TEMPO    4   /* Tempo / BPM */
-#define ENC_ACT_PADSEL   5   /* Pad / Track Select */
-#define ENC_ACT_SAMPLE   6   /* Sample / Preset Select */
-#define ENC_ACT_MASTER   7   /* Master Volume Pot */
+#define ENC_ACT_TEMPO    4   /* K5: SELECT (Tempo / Select) */
+#define ENC_ACT_PRESET   5   /* K6: PRESETS (Sample / Preset Select) */
+#define ENC_ACT_SAMPLE   5   /* Alias for PRESETS */
+#define ENC_ACT_ALGO     6   /* K7: ALGORITHM (Pad / Sound Select) */
+#define ENC_ACT_PADSEL   6   /* Alias for ALGORITHM */
+#define ENC_ACT_MASTER   7   /* K8: VOLUME (Master Volume Pot) */
 
 /* Physical Faders F1..F4 */
 #define FAD_ACT_DEFAULT   0   /* Sound Level (Bank 1: Ch 1-4, Bank 2: Ch 5-8) */

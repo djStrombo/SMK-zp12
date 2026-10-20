@@ -247,13 +247,6 @@ static void draw_head(void)                     /* the header: the name; on a pa
         cv_text_on(51, 2, &FONT_S, b, FAM_INK[fm], FAM_COL[fm]);
     } else {
         cv_text_on(48, 2, &FONT_S, "sampling drums", P_INK, P_FRAME);
-        char ch_tag[16] = "K:";
-        char *cp = ch_tag + 2;
-        cp = num(cp, (int)(smk_midi_ch + 1u), (smk_midi_ch + 1u) >= 10 ? 2 : 1, 0);
-        cp = cat(cp, " P:");
-        num(cp, (int)(smk_midi_pad_ch + 1u), (smk_midi_pad_ch + 1u) >= 10 ? 2 : 1, 0);
-        cv_text_on(165, 2, &FONT_S, ch_tag, P_INK, P_FRAME);
-        cv_text_on(166, 2, &FONT_S, ch_tag, P_INK, P_FRAME);
     }
     cv_blit(0, 0);
 }
@@ -338,9 +331,19 @@ static void draw_lcd(void)                      /* the LCD: big the state, below
         p = cat(p, ".");
         num(p, (int32_t)(t % SQ_BAR / SQ_PPQ + 1u), 1, 0);
     } else {
-        pad_label(p, ui.sel);
-        p = cat(p + 2, " ");
-        cat(p, sound_name(ui.sel));
+#if BOARD_SMK37
+        if (smk_midi_mode) {
+            p = cat(big, "K:");
+            p = num(p, (int)(smk_midi_ch + 1u), (smk_midi_ch + 1u) >= 10 ? 2 : 1, 0);
+            p = cat(p, " P:");
+            num(p, (int)(smk_midi_pad_ch + 1u), (smk_midi_pad_ch + 1u) >= 10 ? 2 : 1, 0);
+        } else
+#endif
+        {
+            pad_label(p, ui.sel);
+            p = cat(p + 2, " ");
+            cat(p, sound_name(ui.sel));
+        }
     }
     {   /* top right, small: the tempo (REC / COUNT / ARMED before it), below it the page; what does not fit
          * beside the big line is left out (the big line wins) */
@@ -356,14 +359,6 @@ static void draw_lcd(void)                      /* the LCD: big the state, below
             cv_text_on(222 - text_w(&FONT_S, small), 4, &FONT_S, small, P_LCDDIM, P_LCD);
         if (222 - text_w(&FONT_S, pg) >= bw)
             cv_text_on(222 - text_w(&FONT_S, pg), 20, &FONT_S, pg, P_LCDDIM, P_LCD);
-        if (ui.page == PG_HOME) {
-            char miditxt[16] = "K:";
-            char *mp = miditxt + 2;
-            mp = num(mp, (int)(smk_midi_ch + 1u), (smk_midi_ch + 1u) >= 10 ? 2 : 1, 0);
-            mp = cat(mp, " P:");
-            num(mp, (int)(smk_midi_pad_ch + 1u), (smk_midi_pad_ch + 1u) >= 10 ? 2 : 1, 0);
-            cv_text_on(10, 24, &FONT_S, miditxt, P_LCDDIM, P_LCD);
-        }
     }
     cv_rect(6, 40, 220, 1, P_LCDDIM);
     page_cols(lab, val);

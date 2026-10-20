@@ -644,6 +644,14 @@ static void zp12_main(void)
                         uint32_t vel = fm1_in.pad_press[pi];
                         if (!vel) vel = 100;
                         midi_out_event(0x09u | ((0x90u | (smk_midi_pad_ch & 0x0Fu)) << 8) | ((pad_base + pi) << 16) | ((vel & 0x7Fu) << 24));
+                        uint32_t pad_num = (smk_midi_pad_bank ? 16u : 0u) + pi + 1u;
+                        uint32_t note = pad_base + pi;
+                        char m[24], *p = cat(m, "PAD ");
+                        p = num(p, (int32_t)pad_num, pad_num >= 10u ? 2 : 1, 0);
+                        p = cat(p, " NOTE:");
+                        num(p, (int32_t)note, note >= 100u ? 3 : 2, 0);
+                        ui_say(m);
+                        ui.force = 1;
                     }
                     if (pu & pbit) {
                         midi_out_event(0x08u | ((0x80u | (smk_midi_pad_ch & 0x0Fu)) << 8) | ((pad_base + pi) << 16) | (0x40u << 24));
@@ -766,19 +774,19 @@ static void zp12_main(void)
                 if (!bank_combo_used) {
                     bank_combo_used = 1;
                     smk_midi_pad_bank ^= 1u;
-                    ui_say(smk_midi_pad_bank ? "PADS: BANK B (52-67)" : "PADS: BANK A (36-51)");
+                    ui_say(smk_midi_pad_bank ? "PADS 17-32" : "PADS 1-16");
                     ui.force = 1;
                 }
             } else {
                 if (!bank_combo_used) {
                     if ((raw_released >> ACT_SEL) & 1u) {
                         smk_midi_enc_bank ^= 1u;
-                        ui_say(smk_midi_enc_bank ? "KNOBS: BANK 2" : "KNOBS: BANK 1");
+                        ui_say(smk_midi_enc_bank ? "KNOBS 9-16" : "KNOBS 1-8");
                         ui.force = 1;
                     }
                     if ((raw_released >> ACT_FBANK) & 1u) {
                         smk_midi_fad_bank ^= 1u;
-                        ui_say(smk_midi_fad_bank ? "FADERS: BANK 2" : "FADERS: BANK 1");
+                        ui_say(smk_midi_fad_bank ? "FADERS 5-8" : "FADERS 1-4");
                         ui.force = 1;
                     }
                 }
@@ -1094,8 +1102,9 @@ static void zp12_main(void)
                     if (smk_midi_mode) {
                         uint8_t cc = (smk_midi_fad_bank ? 44 : 40) + fi;
                         midi_out_event(0x0Bu | ((0xB0u | (smk_midi_fad_ch & 0x0Fu)) << 8) | ((uint32_t)cc << 16) | ((uint32_t)fval << 24));
+                        uint32_t fader_num = (smk_midi_fad_bank ? 4u : 0u) + fi + 1u;
                         char m[24], *p = cat(m, "FADER ");
-                        p = num(p, fi + 1, 1, 0);
+                        p = num(p, fader_num, 1, 0);
                         p = cat(p, " CC");
                         p = num(p, cc, 2, 0);
                         p = cat(p, ":");
@@ -1237,6 +1246,13 @@ static void zp12_main(void)
 #else
             /* Direct physical button LED assignments - zero glitching */
             uint8_t slow_blink = (uint8_t)(((fm1_ms / 750u) & 1u) == 0u);
+            uint32_t bpm = sq.bpm10 ? (sq.bpm10 / 10u) : 120u;
+            if (bpm < 30u) bpm = 30u;
+            uint32_t beat_ms = 60000u / bpm;
+            uint8_t bt_led = sq.playing ? (((fm1_ms % beat_ms) < 70u) ? 1u : 0u) : 1u;
+            if (fm1_ms < smk_bt_flash_until || ((fm1_in.buttons >> 11) & 1u))
+                bt_led = 1u;
+
             if (smk_midi_mode) {
                 smk_led_physical(0, smk_midi_enc_bank != 0);       /* KNOB BANK */
                 smk_led_physical(1, smk_midi_fad_bank != 0);       /* FADER BANK */
@@ -1249,13 +1265,13 @@ static void zp12_main(void)
                 smk_led_physical(8, smk_scale_mode != 0);           /* SCALE */
                 smk_led_physical(9, smk_chord_mode != 0);           /* CHORD */
                 smk_led_physical(10, 1u);                           /* GLOBE: Solid ON constantly in MIDI mode */
-                smk_led_physical(11, ((fm1_in.buttons >> 11) & 1u) || (fm1_ms < smk_bt_flash_until) ? 1u : slow_blink); /* BT */
+                smk_led_physical(11, bt_led);                       /* BT: beat flash while playing, solid when stopped */
                 smk_led_physical(12, slow_blink);                   /* PATCH */
                 smk_led_physical(13, slow_blink);                   /* PARA */
                 smk_led_physical(14, slow_blink);                   /* FX */
                 smk_led_physical(15, slow_blink);                   /* SEQ */
                 smk_led_physical(16, sq.playing);                   /* SEQ PLAY */
-                smk_led_physical(17, slow_blink);                   /* SEQ REC */
+                smk_led_physical(17, 0u);                           /* SEQ REC: OFF in MIDI mode */
             } else {
                 smk_led_physical(0, ui.pair);
                 smk_led_physical(1, smk_fader_bank);
@@ -1268,7 +1284,7 @@ static void zp12_main(void)
                 smk_led_physical(8, smk_scale_mode != 0);
                 smk_led_physical(9, smk_chord_mode != 0);
                 smk_led_physical(10, (lb >> B_GLO) & 1u);
-                smk_led_physical(11, (sq.playing && (sq.beat & 1u)) || (fm1_ms < smk_bt_flash_until));
+                smk_led_physical(11, bt_led);                       /* BT: beat flash while playing, solid when stopped */
                 smk_led_physical(12, (lb >> B_HOME) & 1u);
                 smk_led_physical(13, (lb >> B_EDIT) & 1u);
                 smk_led_physical(14, (lb >> B_FX) & 1u);
@@ -1387,8 +1403,9 @@ static void zp12_main(void)
                             smk_midi_enc_val[idx] = (uint8_t)nv;
                             uint8_t cc = (smk_midi_enc_bank ? 28 : 20) + i;
                             midi_out_event(0x0Bu | ((0xB0u | (smk_midi_knob_ch & 0x0Fu)) << 8) | ((uint32_t)cc << 16) | ((uint32_t)nv << 24));
+                            uint32_t knob_num = (smk_midi_enc_bank ? 8u : 0u) + i + 1u;
                             char m[24], *p = cat(m, "KNOB ");
-                            p = num(p, i + 1, 1, 0);
+                            p = num(p, (int32_t)knob_num, knob_num >= 10u ? 2 : 1, 0);
                             p = cat(p, " CC");
                             p = num(p, cc, 2, 0);
                             p = cat(p, ":");

@@ -106,16 +106,16 @@ uint8_t smk_btn_map[18] = {
     ACT_REC        /* 17: SEQ REC -> Record/Clear in ZP-12 */,
 };
 
-/* Physical encoders K1..K8 (indices 0..7) mapping (in RAM for live remapping) */
+/* Physical encoders K1..K8 (indices 0..7) mapping: FM-1 order K5 SELECT, K6 PRESET, K7 ALGORITHM, K8 VOLUME */
 uint8_t smk_enc_map[8] = {
     ENC_ACT_KNOB1  /* K1 */,
     ENC_ACT_KNOB2  /* K2 */,
     ENC_ACT_KNOB3  /* K3 */,
     ENC_ACT_KNOB4  /* K4 */,
-    ENC_ACT_TEMPO  /* K5: Tempo / Root-Scale-Chord selector */,
-    ENC_ACT_SAMPLE /* K6: PRESETS (Sample / Preset Select) */,
-    ENC_ACT_PADSEL /* K7: ALGORITHM (Pad / Sound Select) */,
-    ENC_ACT_MASTER /* K8: Master Volume */,
+    ENC_ACT_TEMPO  /* K5: SELECT (Tempo / Select) */,
+    ENC_ACT_PRESET /* K6: PRESETS (Sample / Preset Select) */,
+    ENC_ACT_ALGO   /* K7: ALGORITHM (Pad / Sound Select) */,
+    ENC_ACT_MASTER /* K8: VOLUME (Master Volume Pot) */,
 };
 
 /* Physical faders F1..F4 (indices 0..3) mapping (in RAM for live remapping) */
