@@ -23,7 +23,11 @@ static int zl_busy(void) { return zl_last && (uint32_t)(fm1_ms - zl_last) < 1000
 
 static int zl_writable(uint32_t a, uint32_t n)
 {
+#if BOARD_SMK37
+    return FL_STORE_OK(a, n);
+#else
     return FL_IN(a, n, 0xA0000u, 0xDC000u) || FL_IN(a, n, 0xE5000u, 0xE9000u) || FL_IN(a, n, 0xEA000u, 0xFC000u);
+#endif
 }
 
 static void zl_reply(uint32_t cmd, uint32_t rc, uint32_t a, const uint8_t *d, uint32_t n)
@@ -41,6 +45,91 @@ static void zl_reply(uint32_t cmd, uint32_t rc, uint32_t a, const uint8_t *d, ui
     ota_wire_send(zl_wire, w);
 }
 
+#if BOARD_SMK37
+static int smk_sysex_frame(const uint8_t *body, uint32_t n)
+{
+    if (n < 5u || body[0] != 0x7D || body[1] != 0x53 || body[2] != 0x4D || body[3] != 0x4B)
+        return 0;
+
+    uint8_t cmd = body[4];
+    if (cmd == 0x01) {
+        /* Query Mapping (Get Mapping & Extended MIDI Config from RAM) */
+        uint8_t resp[104];
+        uint32_t pos = 0;
+        resp[pos++] = 0xF0;
+        resp[pos++] = 0x7D;
+        resp[pos++] = 0x53; /* 'S' */
+        resp[pos++] = 0x4D; /* 'M' */
+        resp[pos++] = 0x4B; /* 'K' */
+        resp[pos++] = 0x11; /* Query reply */
+        for (uint32_t i = 0; i < 18u; i++) {
+            uint8_t val = smk_btn_map[i];
+            resp[pos++] = (val == ACT_NONE) ? 0x7F : (val & 0x7F);
+        }
+        for (uint32_t i = 0; i < 8u; i++) {
+            uint8_t val = smk_enc_map[i];
+            resp[pos++] = (val == ENC_ACT_NONE) ? 0x7F : (val & 0x7F);
+        }
+        for (uint32_t i = 0; i < 4u; i++) {
+            uint8_t val = smk_fad_map[i];
+            resp[pos++] = val & 0x7F;
+        }
+        /* Extended MIDI Controller Configuration (channels & CCs) */
+        resp[pos++] = smk_midi_ch & 0x0Fu;
+        resp[pos++] = smk_midi_knob_ch & 0x0Fu;
+        resp[pos++] = smk_midi_fad_ch & 0x0Fu;
+        resp[pos++] = smk_midi_pad_ch & 0x0Fu;
+        for (uint32_t i = 0; i < 16u; i++) resp[pos++] = smk_midi_knob_cc[i] & 0x7Fu;
+        for (uint32_t i = 0; i < 8u; i++)  resp[pos++] = smk_midi_fad_cc[i] & 0x7Fu;
+        for (uint32_t i = 0; i < 32u; i++) resp[pos++] = smk_midi_pad_cc[i] & 0x7Fu;
+        resp[pos++] = 0xF7;
+        ota_wire_send(resp, pos);
+        return 1;
+    } else if (cmd == 0x02) {
+        /* Set Mapping & Extended MIDI Config (RAM) */
+        if (n >= 35u) {
+            for (uint32_t i = 0; i < 18u; i++) {
+                uint8_t val = body[5u + i];
+                smk_btn_map[i] = (val == 0x7F) ? ACT_NONE : val;
+            }
+            for (uint32_t i = 0; i < 8u; i++) {
+                uint8_t val = body[23u + i];
+                smk_enc_map[i] = (val == 0x7F) ? ENC_ACT_NONE : val;
+            }
+            for (uint32_t i = 0; i < 4u; i++) {
+                smk_fad_map[i] = body[31u + i];
+            }
+            if (n >= 95u) {
+                smk_midi_ch      = body[35u] & 0x0Fu;
+                smk_midi_knob_ch = body[36u] & 0x0Fu;
+                smk_midi_fad_ch  = body[37u] & 0x0Fu;
+                smk_midi_pad_ch  = body[38u] & 0x0Fu;
+                for (uint32_t i = 0; i < 16u; i++) smk_midi_knob_cc[i] = body[39u + i] & 0x7Fu;
+                for (uint32_t i = 0; i < 8u; i++)  smk_midi_fad_cc[i]  = body[55u + i] & 0x7Fu;
+                for (uint32_t i = 0; i < 32u; i++) smk_midi_pad_cc[i]  = body[63u + i] & 0x7Fu;
+            }
+            ui_say("MAPPING UPDATED");
+            static const uint8_t ack[8] = {0xF0, 0x7D, 0x53, 0x4D, 0x4B, 0x12, 0x00, 0xF7};
+            ota_wire_send(ack, sizeof ack);
+            return 1;
+        }
+    } else if (cmd == 0x03) {
+        /* Set / Toggle MIDI Controller Mode (0 = Synth, 1 = MIDI Ctrl, 2 = Toggle) */
+        if (n >= 6u) {
+            uint8_t m = body[5u];
+            if (m == 2u) smk_midi_mode ^= 1u;
+            else smk_midi_mode = m ? 1u : 0u;
+            ui_say(smk_midi_mode ? "MIDI MODE: ON" : "STANDALONE ON");
+            ui.force = 1;
+            static const uint8_t ack[8] = {0xF0, 0x7D, 0x53, 0x4D, 0x4B, 0x13, 0x00, 0xF7};
+            ota_wire_send(ack, sizeof ack);
+            return 1;
+        }
+    }
+    return 0;
+}
+#endif
+
 /* main loop: a frame for us is taken, any other is left to ota_service */
 static void zl_service(void)
 {
@@ -49,6 +138,18 @@ static void zl_service(void)
     uint8_t h[3];
     if (!ota_frame_get(&p, &n))
         return;
+#if BOARD_SMK37
+    {
+        uint8_t dec[128];
+        uint32_t dec_len = ota_unpack7(p, n, dec, sizeof dec);
+        if (dec_len >= 5u && dec[0] == 0x7D && dec[1] == 'S' && dec[2] == 'M' && dec[3] == 'K') {
+            if (smk_sysex_frame(dec, dec_len)) {
+                ota_frame_done();
+                return;
+            }
+        }
+    }
+#endif
     if (n < 4u || ota_unpack7(p, 4, h, 3) < 3u || h[0] != 0x7D || h[1] != 'Z' || h[2] != 'P')
         return;
     d = ota_unpack7(p, n, zl_dec, sizeof zl_dec);

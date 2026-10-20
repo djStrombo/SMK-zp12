@@ -128,3 +128,59 @@ static void lcd_init(void)
     lcd_fill(0, 0, 240, 240, 0);
     lcd_cmd(0x29);
 }
+
+#if BOARD_SMK37
+/* The 16 RGB pads (SMK-37 Pro): WS2812-class LEDs on SPI1 group B (PC10), one SPI byte per
+ * LED bit (0xF0 = 1, 0xC0 = 0, MSB first, GRB), 36 zero bytes of latch first: 420 bytes, as
+ * the stock firmware sends them. The frame goes out between LCD transfers (LCD CS high),
+ * blocking for ~0.5 ms; padled_flush() only sends when a colour changed. */
+#define PADLED_N 16u
+#define PADLED_PRE_LATCH 256u   /* 256 zero bytes = 307.2 us clean reset latch (>280 us required by WS2812B) */
+#define PADLED_POST_LATCH 64u   /* 64 zero bytes = 76.8 us post-latch so LEDs latch BEFORE SPI unmaps */
+#define PADLED_BUF_SIZE (PADLED_PRE_LATCH + PADLED_N * 24u + PADLED_POST_LATCH)
+static uint8_t padled_buf[PADLED_BUF_SIZE];
+static uint32_t padled_rgb[PADLED_N];
+static uint8_t padled_dirty = 1;
+
+/* hardware pad (8..15 top row, 0..7 bottom row, left to right; smk_input.h SMK_PAD_OF_WHITE) -> position in
+ * the chain (stock table) */
+static const uint8_t PADLED_SLOT[PADLED_N] = {0, 15, 14, 13, 12, 11, 10, 9, 1, 2, 3, 4, 5, 6, 7, 8};
+
+void padled_set(uint32_t pad, uint8_t r, uint8_t g, uint8_t b)
+{
+    uint32_t c = (uint32_t)g << 16 | (uint32_t)r << 8 | b;
+    if (pad < PADLED_N && padled_rgb[pad] != c) {
+        padled_rgb[pad] = c;
+        padled_dirty = 1;
+    }
+}
+
+void padled_flush(void)
+{
+    uint32_t p, i;
+    if (!padled_dirty)
+        return;
+    padled_dirty = 0;
+    for (p = 0; p < PADLED_N; p++) {
+        uint8_t *o = padled_buf + PADLED_PRE_LATCH + PADLED_SLOT[p] * 24u;
+        for (i = 0; i < 24u; i++)
+            o[i] = (padled_rgb[p] >> (23u - i)) & 1u ? 0xF0u : 0xC0u;
+    }
+    lcd_sync();
+    fm1_padled_send(padled_buf, sizeof padled_buf);
+    fm1_lcd_wait();
+    lcd_spin(500u);
+    fm1_padled_done();
+}
+
+void padled_init(void)
+{
+    uint32_t p;
+    for (p = 0; p < sizeof padled_buf; p++)
+        padled_buf[p] = 0;
+    for (p = 0; p < PADLED_N; p++)
+        padled_rgb[p] = 0;
+    padled_dirty = 1;
+    padled_flush();
+}
+#endif

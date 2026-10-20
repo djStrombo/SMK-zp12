@@ -214,11 +214,18 @@ static void sq_play(uint32_t on)
         sq.rec_arm = 0;
         sq.dub_wait = 0;
         sq.playing = 1;
+#if BOARD_SMK37
+        smk_trs_tx_byte(0xFAu);
+        smk_trs_tx_byte(0xF8u);
+#endif
     } else {
         sq_stop_rec();
         sq.playing = 0;
         sq.countin = 0;
         sq.dub_wait = 0;
+#if BOARD_SMK37
+        smk_trs_tx_byte(0xFCu);
+#endif
     }
 }
 
@@ -394,6 +401,16 @@ static void sq_block(void)
     }
     len = sq_len(s);
     to = sq.pos >> 16;
+#if BOARD_SMK37
+    {
+        uint32_t c_from = from / 4u;
+        uint32_t c_to   = to / 4u;
+        while (c_from < c_to) {
+            smk_trs_tx_byte(0xF8u);
+            c_from++;
+        }
+    }
+#endif
     if (sq.dub_wait && to + SQ_PPQ / 8u >= (from / SQ_BAR + 1u) * SQ_BAR) {
         sq.dub_wait = 0;                         /* DUB BAR: recording from the next 1 (a 1/32 before it, so a */
         sq.recording = 1;                        /* hit just early lands on it) */

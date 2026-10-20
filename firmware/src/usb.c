@@ -125,6 +125,26 @@ static uint32_t midi_in_q[MQ], midi_out_q[MQ];
 static volatile uint32_t mi_w, mi_r, mo_w, mo_r;
 static void midi_out_event(uint32_t pkt)            /* from the audio ISR */
 {
+#if BOARD_SMK37
+    uint8_t cin = (uint8_t)(pkt & 0x0Fu);
+    uint8_t b1  = (uint8_t)((pkt >> 8) & 0xFFu);
+    uint8_t b2  = (uint8_t)((pkt >> 16) & 0xFFu);
+    uint8_t b3  = (uint8_t)((pkt >> 24) & 0xFFu);
+
+    if (cin == 0x0Cu || cin == 0x0Du || (b1 >= 0xC0u && b1 <= 0xDFu)) {
+        /* 2-byte channel messages (Program Change, Channel Pressure) */
+        smk_trs_tx_byte(b1);
+        smk_trs_tx_byte(b2);
+    } else if (b1 >= 0x80u && b1 < 0xF8u) {
+        /* 3-byte channel messages (Note Off, Note On, Poly Pressure, CC, Pitch Bend) */
+        smk_trs_tx_byte(b1);
+        smk_trs_tx_byte(b2);
+        smk_trs_tx_byte(b3);
+    } else if (b1 >= 0xF8u) {
+        /* Realtime: clock (0xF8), start (0xFA), stop (0xFC) */
+        smk_trs_tx_byte(b1);
+    }
+#endif
     if (usb.config && mo_w - mo_r < MQ) {
         midi_out_q[mo_w % MQ] = pkt;
         RING_PUBLISH();
