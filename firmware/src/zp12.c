@@ -144,11 +144,30 @@ static uint8_t smk_midi_enc_bank = 0;
 static uint8_t smk_midi_fad_bank = 0;
 static uint32_t smk_bt_flash_until = 0;
 
-static const char *const ARP_MODE_NAMES[4] = {
+static const char *const ARP_MODE_NAMES[5] = {
+    "ARP: ROLL",
     "ARP: UP",
     "ARP: DOWN",
     "ARP: UP/DN",
     "ARP: RANDOM"
+};
+
+static const char *const ARP_RATE_NAMES[8] = {
+    "ARP 1/4",
+    "ARP 1/4T",
+    "ARP 1/8",
+    "ARP 1/8T",
+    "ARP 1/16",
+    "ARP 1/16T",
+    "ARP 1/32",
+    "ARP 1/32T"
+};
+
+static const char *const CLOCK_MODE_NAMES[4] = {
+    "INT",
+    "USB",
+    "TRS",
+    "AUTO"
 };
 
 static const char *const SCALE_NAMES[5] = {
@@ -500,7 +519,8 @@ static void zp12_main(void)
             static uint8_t smk_key_chord_notes[FM1_NKEY][5];
             static uint8_t smk_key_chord_cnt[FM1_NKEY];
             static uint32_t smk_arp_last_ms = 0;
-            static int32_t smk_arp_cur_note = -1;
+            static uint8_t smk_arp_cur_notes[FM1_NKEY];
+            static uint8_t smk_arp_cur_cnt = 0;
             static uint8_t smk_arp_idx = 0;
 
             uint64_t cur_k = fm1_in.keys;
@@ -518,64 +538,101 @@ static void zp12_main(void)
                     }
                 }
                 uint32_t bpm = sq.bpm10 ? (sq.bpm10 / 10u) : 120u;
-                if (bpm < 40) bpm = 40;
-                uint32_t interval_ms = (60000u / bpm) / 4u; /* 1/16th notes */
-                if (interval_ms < 20u) interval_ms = 20u;
+                if (bpm < 30u) bpm = 30u;
+                uint32_t beat_ms = 60000u / bpm;
+                uint32_t interval_ms;
+                switch (smk_arp_rate % 8u) {
+                case 0: interval_ms = beat_ms; break;             /* 1/4 */
+                case 1: interval_ms = (beat_ms * 2u) / 3u; break; /* 1/4T */
+                case 2: interval_ms = beat_ms / 2u; break;        /* 1/8 */
+                case 3: interval_ms = beat_ms / 3u; break;        /* 1/8T */
+                case 4: default: interval_ms = beat_ms / 4u; break; /* 1/16 */
+                case 5: interval_ms = beat_ms / 6u; break;        /* 1/16T */
+                case 6: interval_ms = beat_ms / 8u; break;        /* 1/32 */
+                case 7: interval_ms = beat_ms / 12u; break;       /* 1/32T */
+                }
+                if (interval_ms < 15u) interval_ms = 15u;
                 uint32_t gate_ms = (interval_ms * 7u) / 8u;
 
                 if (held_cnt == 0) {
-                    if (smk_arp_cur_note >= 0) {
-                        midi_out_event(0x08u | ((0x80u | (smk_midi_ch & 0x0Fu)) << 8) | ((uint32_t)smk_arp_cur_note << 16) | (0x40u << 24));
-                        smk_arp_cur_note = -1;
+                    if (smk_arp_cur_cnt > 0) {
+                        for (uint32_t c = 0; c < smk_arp_cur_cnt; c++) {
+                            midi_out_event(0x08u | ((0x80u | (smk_midi_ch & 0x0Fu)) << 8) | ((uint32_t)smk_arp_cur_notes[c] << 16) | (0x40u << 24));
+                        }
+                        smk_arp_cur_cnt = 0;
                     }
                     smk_arp_idx = 0;
                 } else {
-                    if (smk_arp_cur_note >= 0 && (uint32_t)(fm1_ms - smk_arp_last_ms) >= gate_ms) {
-                        midi_out_event(0x08u | ((0x80u | (smk_midi_ch & 0x0Fu)) << 8) | ((uint32_t)smk_arp_cur_note << 16) | (0x40u << 24));
-                        smk_arp_cur_note = -1;
+                    if (smk_arp_cur_cnt > 0 && (uint32_t)(fm1_ms - smk_arp_last_ms) >= gate_ms) {
+                        for (uint32_t c = 0; c < smk_arp_cur_cnt; c++) {
+                            midi_out_event(0x08u | ((0x80u | (smk_midi_ch & 0x0Fu)) << 8) | ((uint32_t)smk_arp_cur_notes[c] << 16) | (0x40u << 24));
+                        }
+                        smk_arp_cur_cnt = 0;
                     }
                     if ((uint32_t)(fm1_ms - smk_arp_last_ms) >= interval_ms) {
                         smk_arp_last_ms = fm1_ms;
-                        uint32_t ki;
-                        if (smk_arp_mode == 1) {
-                            /* DOWN */
-                            uint32_t step = smk_arp_idx % held_cnt;
-                            ki = held_keys[held_cnt - 1u - step];
-                            smk_arp_idx++;
-                        } else if (smk_arp_mode == 2) {
-                            /* UP / DOWN */
-                            if (held_cnt <= 1) {
-                                ki = held_keys[0];
-                            } else {
-                                uint32_t cycle = (held_cnt - 1u) * 2u;
-                                uint32_t step = smk_arp_idx % cycle;
-                                ki = (step < held_cnt) ? held_keys[step] : held_keys[cycle - step];
-                            }
-                            smk_arp_idx++;
-                        } else if (smk_arp_mode == 3) {
-                            /* RANDOM */
-                            uint32_t rnd = (uint32_t)(fm1_ms * 1103515245u + 12345u) >> 16;
-                            ki = held_keys[rnd % held_cnt];
-                            smk_arp_idx++;
-                        } else {
-                            /* UP */
-                            uint32_t step = smk_arp_idx % held_cnt;
-                            ki = held_keys[step];
-                            smk_arp_idx++;
+                        /* Release previous notes if still sounding */
+                        for (uint32_t c = 0; c < smk_arp_cur_cnt; c++) {
+                            midi_out_event(0x08u | ((0x80u | (smk_midi_ch & 0x0Fu)) << 8) | ((uint32_t)smk_arp_cur_notes[c] << 16) | (0x40u << 24));
                         }
-                        int32_t m_note = 48 + (int32_t)ki + ((int32_t)smk_kbd_oct * 12);
-                        m_note = sp_clamp(m_note, 0, 127);
-                        int32_t q_note = smk_quantize_note(m_note);
-                        uint32_t vel = fm1_in.key_vel[ki];
-                        if (!vel) vel = 96;
-                        smk_arp_cur_note = q_note;
-                        midi_out_event(0x09u | ((0x90u | (smk_midi_ch & 0x0Fu)) << 8) | ((uint32_t)q_note << 16) | (vel << 24));
+                        smk_arp_cur_cnt = 0;
+
+                        if (smk_arp_mode == 0) {
+                            /* Mode 0: ROLL (plays all held keys simultaneously on each tick) */
+                            for (uint32_t h = 0; h < held_cnt && smk_arp_cur_cnt < FM1_NKEY; h++) {
+                                uint32_t ki = held_keys[h];
+                                int32_t m_note = 48 + (int32_t)ki + ((int32_t)smk_kbd_oct * 12);
+                                m_note = sp_clamp(m_note, 0, 127);
+                                int32_t q_note = smk_quantize_note(m_note);
+                                uint32_t vel = fm1_in.key_vel[ki];
+                                if (!vel) vel = 96;
+                                smk_arp_cur_notes[smk_arp_cur_cnt++] = (uint8_t)q_note;
+                                midi_out_event(0x09u | ((0x90u | (smk_midi_ch & 0x0Fu)) << 8) | ((uint32_t)q_note << 16) | (vel << 24));
+                            }
+                        } else {
+                            uint32_t ki;
+                            if (smk_arp_mode == 2) {
+                                /* Mode 2: DOWN */
+                                uint32_t step = smk_arp_idx % held_cnt;
+                                ki = held_keys[held_cnt - 1u - step];
+                                smk_arp_idx++;
+                            } else if (smk_arp_mode == 3) {
+                                /* Mode 3: UP / DOWN */
+                                if (held_cnt <= 1) {
+                                    ki = held_keys[0];
+                                } else {
+                                    uint32_t cycle = (held_cnt - 1u) * 2u;
+                                    uint32_t step = smk_arp_idx % cycle;
+                                    ki = (step < held_cnt) ? held_keys[step] : held_keys[cycle - step];
+                                }
+                                smk_arp_idx++;
+                            } else if (smk_arp_mode == 4) {
+                                /* Mode 4: RANDOM */
+                                uint32_t rnd = (uint32_t)(fm1_ms * 1103515245u + 12345u) >> 16;
+                                ki = held_keys[rnd % held_cnt];
+                                smk_arp_idx++;
+                            } else {
+                                /* Mode 1: UP */
+                                uint32_t step = smk_arp_idx % held_cnt;
+                                ki = held_keys[step];
+                                smk_arp_idx++;
+                            }
+                            int32_t m_note = 48 + (int32_t)ki + ((int32_t)smk_kbd_oct * 12);
+                            m_note = sp_clamp(m_note, 0, 127);
+                            int32_t q_note = smk_quantize_note(m_note);
+                            uint32_t vel = fm1_in.key_vel[ki];
+                            if (!vel) vel = 96;
+                            smk_arp_cur_notes[smk_arp_cur_cnt++] = (uint8_t)q_note;
+                            midi_out_event(0x09u | ((0x90u | (smk_midi_ch & 0x0Fu)) << 8) | ((uint32_t)q_note << 16) | (vel << 24));
+                        }
                     }
                 }
             } else {
-                if (smk_arp_cur_note >= 0) {
-                    midi_out_event(0x08u | ((0x80u | (smk_midi_ch & 0x0Fu)) << 8) | ((uint32_t)smk_arp_cur_note << 16) | (0x40u << 24));
-                    smk_arp_cur_note = -1;
+                if (smk_arp_cur_cnt > 0) {
+                    for (uint32_t c = 0; c < smk_arp_cur_cnt; c++) {
+                        midi_out_event(0x08u | ((0x80u | (smk_midi_ch & 0x0Fu)) << 8) | ((uint32_t)smk_arp_cur_notes[c] << 16) | (0x40u << 24));
+                    }
+                    smk_arp_cur_cnt = 0;
                 }
                 uint32_t ki;
                 for (ki = 0; ki < FM1_NKEY; ki++) {
@@ -646,9 +703,9 @@ static void zp12_main(void)
                         midi_out_event(0x09u | ((0x90u | (smk_midi_pad_ch & 0x0Fu)) << 8) | ((pad_base + pi) << 16) | ((vel & 0x7Fu) << 24));
                         uint32_t pad_num = (smk_midi_pad_bank ? 16u : 0u) + pi + 1u;
                         uint32_t note = pad_base + pi;
-                        char m[24], *p = cat(m, "PAD ");
+                        char m[24], *p = cat(m, "P ");
                         p = num(p, (int32_t)pad_num, pad_num >= 10u ? 2 : 1, 0);
-                        p = cat(p, " NOTE:");
+                        p = cat(p, " CC:");
                         num(p, (int32_t)note, note >= 100u ? 3 : 2, 0);
                         ui_say(m);
                         ui.force = 1;
@@ -714,6 +771,10 @@ static void zp12_main(void)
                 } else if ((uint32_t)(fm1_ms - patch_para_t0) >= 600u) {
                     patch_para_t0 = 0;
                     smk_midi_mode ^= 1u;
+                    if (smk_midi_mode) {
+                        ui.steps = 0;
+                        page(PG_HOME);
+                    }
                     ui_say(smk_midi_mode ? "MIDI MODE: ON" : "STANDALONE ON");
                     ui.force = 1;
                 }
@@ -722,13 +783,51 @@ static void zp12_main(void)
             }
         }
 
-        /* PATCH (B_HOME) tapped alone in ZP-12 mode goes to Home (clearing step seq) */
-        if (!smk_midi_mode && (b & (1u << B_HOME))) {
-            b &= ~(1u << B_HOME);
-            ui.steps = 0;
-            page(PG_HOME);
-            ui.force = 1;
+        /* PATCH (B_HOME) alone: Hold (>= 600ms) toggles Options Menu, Tap goes to Home */
+        {
+            static uint32_t patch_alone_t0 = 0;
+            static uint8_t patch_alone_done = 0;
+            uint8_t patch_down = (fm1_in.buttons >> B_HOME) & 1u;
+            uint8_t para_down  = (fm1_in.buttons >> B_EDIT) & 1u;
+
+            if (patch_down && !para_down) {
+                if (!patch_alone_t0) {
+                    patch_alone_t0 = fm1_ms ? fm1_ms : 1u;
+                    patch_alone_done = 0;
+                } else if (!patch_alone_done && (uint32_t)(fm1_ms - patch_alone_t0) >= 600u) {
+                    patch_alone_done = 1;
+                    if (ui.page == PG_OPTS) {
+                        page(PG_HOME);
+                        ui_say("OPTIONS: CLOSED");
+                    } else {
+                        page(PG_OPTS);
+                        ui_say("OPTIONS MENU");
+                    }
+                    ui.force = 1;
+                }
+            } else {
+                if (!patch_down) {
+                    if (patch_alone_t0 && !patch_alone_done && !para_down) {
+                        /* Short tap */
+                        if (ui.page == PG_OPTS) {
+                            page(PG_HOME);
+                            ui_say("OPTIONS: CLOSED");
+                            ui.force = 1;
+                        } else if (!smk_midi_mode) {
+                            ui.steps = 0;
+                            page(PG_HOME);
+                            ui.force = 1;
+                        }
+                    }
+                    patch_alone_t0 = 0;
+                    patch_alone_done = 0;
+                } else if (para_down) {
+                    patch_alone_t0 = 0;
+                    patch_alone_done = 1;
+                }
+            }
         }
+        b &= ~(1u << B_HOME);
 
         /* Keyboard Octave buttons: OCT- and OCT+ */
         if (b & (1u << ACT_KBD_OCTDN)) {
@@ -774,19 +873,19 @@ static void zp12_main(void)
                 if (!bank_combo_used) {
                     bank_combo_used = 1;
                     smk_midi_pad_bank ^= 1u;
-                    ui_say(smk_midi_pad_bank ? "PADS 17-32" : "PADS 1-16");
+                    ui_say(smk_midi_pad_bank ? "P 17-32" : "P 1-16");
                     ui.force = 1;
                 }
             } else {
                 if (!bank_combo_used) {
                     if ((raw_released >> ACT_SEL) & 1u) {
                         smk_midi_enc_bank ^= 1u;
-                        ui_say(smk_midi_enc_bank ? "KNOBS 9-16" : "KNOBS 1-8");
+                        ui_say(smk_midi_enc_bank ? "K 9-16" : "K 1-8");
                         ui.force = 1;
                     }
                     if ((raw_released >> ACT_FBANK) & 1u) {
                         smk_midi_fad_bank ^= 1u;
-                        ui_say(smk_midi_fad_bank ? "FADERS 5-8" : "FADERS 1-4");
+                        ui_say(smk_midi_fad_bank ? "F 5-8" : "F 1-4");
                         ui.force = 1;
                     }
                 }
@@ -825,8 +924,8 @@ static void zp12_main(void)
                 cho_adjusted = 1;
                 if (smk_chord_mode != 0 && !smk_midi_mode) ui.multi = 1;
                 ui_say(CHORD_NAMES[smk_chord_mode]);
-            } else if (smk_midi_mode && arp_held) {
-                smk_arp_mode = (smk_arp_mode + 3) % 4;
+            } else if (smk_midi_mode && (arp_held || smk_midi_arp_on)) {
+                smk_arp_mode = (smk_arp_mode + 4) % 5;
                 arp_adjusted = 1;
                 ui_say(ARP_MODE_NAMES[smk_arp_mode]);
             } else if (smk_midi_mode && glo_held) {
@@ -872,8 +971,8 @@ static void zp12_main(void)
                 cho_adjusted = 1;
                 if (smk_chord_mode != 0 && !smk_midi_mode) ui.multi = 1;
                 ui_say(CHORD_NAMES[smk_chord_mode]);
-            } else if (smk_midi_mode && arp_held) {
-                smk_arp_mode = (smk_arp_mode + 1) % 4;
+            } else if (smk_midi_mode && (arp_held || smk_midi_arp_on)) {
+                smk_arp_mode = (smk_arp_mode + 1) % 5;
                 arp_adjusted = 1;
                 ui_say(ARP_MODE_NAMES[smk_arp_mode]);
             } else if (smk_midi_mode && glo_held) {
@@ -905,7 +1004,7 @@ static void zp12_main(void)
         }
 
         /* ARP button (ACT_ARP / Button 6):
-         * Tap toggles ON/OFF, Hold + < / > or K5 selects Arp Mode */
+         * Tap cycles rates (1/4 .. 1/32T), Hold (>= 600ms) turns OFF */
         {
             static uint32_t arp_down_ms = 0;
             if (b & (1u << ACT_ARP)) {
@@ -913,11 +1012,27 @@ static void zp12_main(void)
                 arp_down_ms = fm1_ms ? fm1_ms : 1;
                 arp_adjusted = 0;
             }
+            if (arp_down_ms && !arp_adjusted && (uint32_t)(fm1_ms - arp_down_ms) >= 600u) {
+                if (smk_midi_mode) {
+                    smk_midi_arp_on = 0;
+                    ui_say("ARP: OFF");
+                } else {
+                    ui.multi = 0;
+                    ui_say("MULTI PITCH: OFF");
+                }
+                arp_adjusted = 1;
+                ui.force = 1;
+            }
             if (rel & (1u << ACT_ARP)) {
                 if (arp_down_ms && !arp_adjusted) {
                     if (smk_midi_mode) {
-                        smk_midi_arp_on ^= 1u;
-                        ui_say(smk_midi_arp_on ? "ARP: ON (1/16)" : "ARP: OFF");
+                        if (!smk_midi_arp_on) {
+                            smk_midi_arp_on = 1;
+                            ui_say(ARP_RATE_NAMES[smk_arp_rate % 8u]);
+                        } else {
+                            smk_arp_rate = (smk_arp_rate + 1) % 8;
+                            ui_say(ARP_RATE_NAMES[smk_arp_rate % 8u]);
+                        }
                     } else {
                         ui.multi ^= 1u;
                         ui_say(ui.multi ? "MULTI PITCH: ON" : "MULTI PITCH: OFF");
@@ -1103,7 +1218,7 @@ static void zp12_main(void)
                         uint8_t cc = (smk_midi_fad_bank ? 44 : 40) + fi;
                         midi_out_event(0x0Bu | ((0xB0u | (smk_midi_fad_ch & 0x0Fu)) << 8) | ((uint32_t)cc << 16) | ((uint32_t)fval << 24));
                         uint32_t fader_num = (smk_midi_fad_bank ? 4u : 0u) + fi + 1u;
-                        char m[24], *p = cat(m, "FADER ");
+                        char m[24], *p = cat(m, "F ");
                         p = num(p, fader_num, 1, 0);
                         p = cat(p, " CC");
                         p = num(p, cc, 2, 0);
@@ -1256,8 +1371,8 @@ static void zp12_main(void)
             if (smk_midi_mode) {
                 smk_led_physical(0, smk_midi_enc_bank != 0);       /* KNOB BANK */
                 smk_led_physical(1, smk_midi_fad_bank != 0);       /* FADER BANK */
-                smk_led_physical(2, 0u);                            /* < */
-                smk_led_physical(3, 0u);                            /* > */
+                smk_led_physical(2, smk_midi_arp_on);               /* < : lit when ARP is ON */
+                smk_led_physical(3, smk_midi_arp_on);               /* > : lit when ARP is ON */
                 smk_led_physical(4, smk_kbd_oct < 0);               /* OCT- */
                 smk_led_physical(5, smk_kbd_oct > 0);               /* OCT+ */
                 smk_led_physical(6, smk_midi_arp_on);               /* ARP */
@@ -1266,7 +1381,7 @@ static void zp12_main(void)
                 smk_led_physical(9, smk_chord_mode != 0);           /* CHORD */
                 smk_led_physical(10, 1u);                           /* GLOBE: Solid ON constantly in MIDI mode */
                 smk_led_physical(11, bt_led);                       /* BT: beat flash while playing, solid when stopped */
-                smk_led_physical(12, slow_blink);                   /* PATCH */
+                smk_led_physical(12, (ui.page == PG_OPTS) ? 1u : slow_blink); /* PATCH: solid if in options menu */
                 smk_led_physical(13, slow_blink);                   /* PARA */
                 smk_led_physical(14, slow_blink);                   /* FX */
                 smk_led_physical(15, slow_blink);                   /* SEQ */
@@ -1285,7 +1400,7 @@ static void zp12_main(void)
                 smk_led_physical(9, smk_chord_mode != 0);
                 smk_led_physical(10, (lb >> B_GLO) & 1u);
                 smk_led_physical(11, bt_led);                       /* BT: beat flash while playing, solid when stopped */
-                smk_led_physical(12, (lb >> B_HOME) & 1u);
+                smk_led_physical(12, (ui.page == PG_OPTS) ? 1u : ((lb >> B_HOME) & 1u));
                 smk_led_physical(13, (lb >> B_EDIT) & 1u);
                 smk_led_physical(14, (lb >> B_FX) & 1u);
                 smk_led_physical(15, (lb >> B_SEQ) & 1u || ui.steps);
@@ -1361,57 +1476,64 @@ static void zp12_main(void)
             for (i = 0; i < 8u; i++) {
                 if ((d = fm1_enc_take(i)) != 0) {
                     if (smk_midi_mode) {
-                        uint8_t bt_down = (fm1_in.buttons >> 11) & 1u;
-                        if (i == 4 && glo_held) {
-                            if (bt_down) {
-                                smk_midi_pad_ch = (uint8_t)((smk_midi_pad_ch + (d > 0 ? 1 : 15)) % 16);
-                                char msg[16] = "PAD CH ";
-                                num(msg + 7, smk_midi_pad_ch + 1, smk_midi_pad_ch + 1 >= 10 ? 2 : 1, 0);
-                                ui_say(msg);
-                            } else {
-                                smk_midi_ch = (uint8_t)((smk_midi_ch + (d > 0 ? 1 : 15)) % 16);
-                                char msg[16] = "KBD CH ";
-                                num(msg + 7, smk_midi_ch + 1, smk_midi_ch + 1 >= 10 ? 2 : 1, 0);
-                                ui_say(msg);
+                        if (ui.page == PG_OPTS) {
+                            if (i < 4u) {
+                                knob(i, d);
+                                ui.force = 1;
                             }
-                            ui.force = 1;
-                        } else if (i == 4 && arp_held) {
-                            smk_arp_mode = (smk_arp_mode + (d > 0 ? 1 : 3)) % 4;
-                            arp_adjusted = 1;
-                            ui_say(ARP_MODE_NAMES[smk_arp_mode]);
-                            ui.force = 1;
-                        } else if (i == 4 && rep_held) {
-                            smk_root_note = (smk_root_note + (d > 0 ? 1 : 11)) % 12;
-                            rep_adjusted = 1;
-                            ui_say(ROOT_NOTE_NAMES[smk_root_note]);
-                            ui.force = 1;
-                        } else if (i == 4 && scl_held) {
-                            smk_scale_mode = (smk_scale_mode + (d > 0 ? 1 : 4)) % 5;
-                            scl_adjusted = 1;
-                            ui_say(SCALE_NAMES[smk_scale_mode]);
-                            ui.force = 1;
-                        } else if (i == 4 && cho_held) {
-                            smk_chord_mode = (smk_chord_mode + (d > 0 ? 1 : 6)) % 7;
-                            cho_adjusted = 1;
-                            ui_say(CHORD_NAMES[smk_chord_mode]);
-                            ui.force = 1;
                         } else {
-                            static uint8_t smk_midi_enc_val[16];
-                            uint32_t idx = (smk_midi_enc_bank ? 8u : 0u) + i;
-                            int32_t step = accel(d);
-                            int32_t nv = sp_clamp((int32_t)smk_midi_enc_val[idx] + step, 0, 127);
-                            smk_midi_enc_val[idx] = (uint8_t)nv;
-                            uint8_t cc = (smk_midi_enc_bank ? 28 : 20) + i;
-                            midi_out_event(0x0Bu | ((0xB0u | (smk_midi_knob_ch & 0x0Fu)) << 8) | ((uint32_t)cc << 16) | ((uint32_t)nv << 24));
-                            uint32_t knob_num = (smk_midi_enc_bank ? 8u : 0u) + i + 1u;
-                            char m[24], *p = cat(m, "KNOB ");
-                            p = num(p, (int32_t)knob_num, knob_num >= 10u ? 2 : 1, 0);
-                            p = cat(p, " CC");
-                            p = num(p, cc, 2, 0);
-                            p = cat(p, ":");
-                            num(p, nv, 3, 0);
-                            ui_say(m);
-                            ui.force = 1;
+                            uint8_t bt_down = (fm1_in.buttons >> 11) & 1u;
+                            if (i == 4 && glo_held) {
+                                if (bt_down) {
+                                    smk_midi_pad_ch = (uint8_t)((smk_midi_pad_ch + (d > 0 ? 1 : 15)) % 16);
+                                    char msg[16] = "PAD CH ";
+                                    num(msg + 7, smk_midi_pad_ch + 1, smk_midi_pad_ch + 1 >= 10 ? 2 : 1, 0);
+                                    ui_say(msg);
+                                } else {
+                                    smk_midi_ch = (uint8_t)((smk_midi_ch + (d > 0 ? 1 : 15)) % 16);
+                                    char msg[16] = "KBD CH ";
+                                    num(msg + 7, smk_midi_ch + 1, smk_midi_ch + 1 >= 10 ? 2 : 1, 0);
+                                    ui_say(msg);
+                                }
+                                ui.force = 1;
+                            } else if (i == 4 && arp_held) {
+                                smk_arp_mode = (smk_arp_mode + (d > 0 ? 1 : 4)) % 5;
+                                arp_adjusted = 1;
+                                ui_say(ARP_MODE_NAMES[smk_arp_mode]);
+                                ui.force = 1;
+                            } else if (i == 4 && rep_held) {
+                                smk_root_note = (smk_root_note + (d > 0 ? 1 : 11)) % 12;
+                                rep_adjusted = 1;
+                                ui_say(ROOT_NOTE_NAMES[smk_root_note]);
+                                ui.force = 1;
+                            } else if (i == 4 && scl_held) {
+                                smk_scale_mode = (smk_scale_mode + (d > 0 ? 1 : 4)) % 5;
+                                scl_adjusted = 1;
+                                ui_say(SCALE_NAMES[smk_scale_mode]);
+                                ui.force = 1;
+                            } else if (i == 4 && cho_held) {
+                                smk_chord_mode = (smk_chord_mode + (d > 0 ? 1 : 6)) % 7;
+                                cho_adjusted = 1;
+                                ui_say(CHORD_NAMES[smk_chord_mode]);
+                                ui.force = 1;
+                            } else {
+                                static uint8_t smk_midi_enc_val[16];
+                                uint32_t idx = (smk_midi_enc_bank ? 8u : 0u) + i;
+                                int32_t step = accel(d);
+                                int32_t nv = sp_clamp((int32_t)smk_midi_enc_val[idx] + step, 0, 127);
+                                smk_midi_enc_val[idx] = (uint8_t)nv;
+                                uint8_t cc = (smk_midi_enc_bank ? 28 : 20) + i;
+                                midi_out_event(0x0Bu | ((0xB0u | (smk_midi_knob_ch & 0x0Fu)) << 8) | ((uint32_t)cc << 16) | ((uint32_t)nv << 24));
+                                uint32_t knob_num = (smk_midi_enc_bank ? 8u : 0u) + i + 1u;
+                                char m[24], *p = cat(m, "K ");
+                                p = num(p, (int32_t)knob_num, knob_num >= 10u ? 2 : 1, 0);
+                                p = cat(p, " CC");
+                                p = num(p, cc, 2, 0);
+                                p = cat(p, ":");
+                                num(p, nv, 3, 0);
+                                ui_say(m);
+                                ui.force = 1;
+                            }
                         }
                     } else {
                         /* Modifier adjustments for K5 */
@@ -1479,13 +1601,66 @@ static void zp12_main(void)
         }
 #endif
         while (mi_r != mi_w) {                          /* MIDI in (USB, TRS): notes 36..67 play the 32 pads, */
-            uint32_t pk = midi_in_q[mi_r % MQ], st = (pk >> 8) & 0xF0u, nt = (pk >> 16) & 0x7Fu, vel = pk >> 24 & 0x7Fu;
+            uint32_t pk = midi_in_q[mi_r % MQ];
+            uint32_t raw_st = (pk >> 8) & 0xFFu;
+            uint32_t cmd = raw_st & 0xF0u;
+            uint32_t ch = raw_st & 0x0Fu;
+            uint32_t nt = (pk >> 16) & 0x7Fu;
+            uint32_t vel = pk >> 24 & 0x7Fu;
             mi_r++;                                     /* Program Change 0..15 picks loop 1..16 (as a black key) */
-            if (st == 0x90u && vel && nt >= 36u && nt < 68u)
-                pad_hit(nt - 36u, vel);
-            else if (st == 0xC0u && nt < SQ_NSEG)
-                ui_loop(nt);
+
+            if (raw_st >= 0xF8u) {
+                uint8_t cable = (uint8_t)((pk & 0x10u) ? 1u : 0u); /* 0 = USB, 1 = TRS */
+                uint8_t clk_accepted = 0;
+                if (smk_midi_clock_mode == 1 && cable == 0) clk_accepted = 1;      /* USB */
+                else if (smk_midi_clock_mode == 2 && cable == 1) clk_accepted = 1; /* TRS */
+                else if (smk_midi_clock_mode == 3) clk_accepted = 1;              /* AUTO */
+
+                if (clk_accepted) {
+                    if (raw_st == 0xF8u) {
+                        static uint32_t clk_beat_t0 = 0;
+                        static uint8_t clk_pulse_cnt = 0;
+                        if (!clk_pulse_cnt) clk_beat_t0 = fm1_ms;
+                        clk_pulse_cnt++;
+                        if (clk_pulse_cnt >= 24u) {
+                            uint32_t dur = fm1_ms - clk_beat_t0;
+                            clk_pulse_cnt = 0;
+                            clk_beat_t0 = fm1_ms;
+                            if (dur >= 150u && dur <= 3000u) {
+                                sq.bpm10 = (uint16_t)(600000u / dur);
+                            }
+                        }
+                    } else if (raw_st == 0xFAu || raw_st == 0xFBu) {
+                        sq_post(RQ_PLAY, 0, 0);
+                    } else if (raw_st == 0xFCu) {
+                        sq_post(RQ_STOP, 0, 0);
+                    }
+                }
+            } else if (cmd == 0x90u && vel && nt >= 36u && nt < 68u) {
+                if (smk_zp_midi_ch == 0 || ch == (smk_zp_midi_ch - 1))
+                    pad_hit(nt - 36u, vel);
+            } else if (cmd == 0xC0u && nt < SQ_NSEG) {
+                if (smk_zp_midi_ch == 0 || ch == (smk_zp_midi_ch - 1))
+                    ui_loop(nt);
+            }
         }
+#if BOARD_SMK37
+        if (smk_midi_clock_send && sq.playing) {
+            static uint32_t last_sq_pos_tick = 0;
+            uint32_t cur_sq_pos_tick = sq.pos >> 16;
+            while (last_sq_pos_tick != cur_sq_pos_tick) {
+                last_sq_pos_tick++;
+                midi_out_event(0x05u | (0xF8u << 8));
+            }
+        }
+        if (smk_midi_mode && ui.page != PG_OPTS) {
+            if (ui.page != PG_HOME || ui.steps) {
+                ui.page = PG_HOME;
+                ui.steps = 0;
+                ui.force = 1;
+            }
+        }
+#endif
 #if !BOARD_SMK37
         {
             int32_t a = fm1_adc_read(FM1_ADC_MASTER);   /* the MASTER knob */

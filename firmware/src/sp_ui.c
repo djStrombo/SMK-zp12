@@ -23,8 +23,8 @@
 #define P_PAD RGB(18, 18, 20)
 #define P_RULE RGB(120, 140, 180)
 #define P_STEP RGB(240, 200, 60)
-static const uint16_t FAM_COL[5] = {RGB(38, 62, 112), RGB(236, 166, 44), RGB(52, 176, 160), RGB(200, 46, 50), RGB(150, 156, 172)};
-static const uint16_t FAM_INK[5] = {RGB(255, 255, 255), RGB(30, 24, 10), RGB(8, 30, 28), RGB(255, 255, 255), RGB(20, 24, 34)};
+static const uint16_t FAM_COL[6] = {RGB(38, 62, 112), RGB(236, 166, 44), RGB(52, 176, 160), RGB(200, 46, 50), RGB(150, 156, 172), RGB(90, 120, 180)};
+static const uint16_t FAM_INK[6] = {RGB(255, 255, 255), RGB(30, 24, 10), RGB(8, 30, 28), RGB(255, 255, 255), RGB(20, 24, 34), RGB(255, 255, 255)};
 
 /* a page untouched this long: back to the faders (GLO > SETUP > BACK; 0: never) */
 static const uint8_t UI_BACK_S[5] = {6, 12, 30, 60, 0};
@@ -35,17 +35,17 @@ static const char *const UI_BACK_NAME[5] = {"6 S", "12 S", "30 S", "60 S", "OFF"
 #endif
 static const char ZP12_VERSION[] = ZP12_VER;
 
-enum { PG_HOME, PG_WAVE, PG_SOUND, PG_TRUNC, PG_OUT, PG_SFX, PG_FILT, PG_CHO, PG_DLY, PG_REV, PG_SEG, PG_SEG2, PG_SONG, PG_SETUP, PG_CLICK, PG_OUTPUT, PG_N };
+enum { PG_HOME, PG_WAVE, PG_SOUND, PG_TRUNC, PG_OUT, PG_SFX, PG_FILT, PG_CHO, PG_DLY, PG_REV, PG_SEG, PG_SEG2, PG_SONG, PG_SETUP, PG_CLICK, PG_OUTPUT, PG_OPTS, PG_N };
 static const char *const PG_NAME[PG_N] = {"MIX", "WAVE", "SOUND", "TRUNC", "OUT", "SENDS", "FILTER", "CHORUS", "DELAY", "REVERB",
-                                          "LOOP", "TOOLS", "SONG", "SETUP", "CLICK", "OUTPUT"};
+                                          "LOOP", "TOOLS", "SONG", "SETUP", "CLICK", "OUTPUT", "OPTIONS"};
 /* buttons: the printed labels' matrix ids (as SLOOP's PANEL_DEFAULT); SEL is SLOOP's SCL */
 enum { B_OCTDN = 0, B_OCTUP = 1, B_FX = 2, B_SEL = 3, B_ENV = 4, B_LFO = 5, B_EDIT = 6, B_GLO = 7, B_HOME = 8,
        B_SAVE = 9, B_ARP = 10, B_SEQ = 11, B_PLAY = 12, B_REC = 13 };
 /* the page families (the button that opens them): their name, colour, pages; on a page the header says where
  * (EDIT > SOUND) and the tabs take the faders' place */
-static const char *const FAM_NAME[5] = {"MIX", "EDIT", "FX", "SEQ", "GLO"};
-static const uint8_t FAM_FIRST[5] = {PG_HOME, PG_WAVE, PG_FILT, PG_SEG, PG_SETUP}, FAM_N[5] = {1, 5, 4, 3, 3};
-static uint32_t fam_of(uint32_t pg) { return pg == PG_HOME ? 0u : pg <= PG_SFX ? 1u : pg <= PG_REV ? 2u : pg <= PG_SONG ? 3u : 4u; }
+static const char *const FAM_NAME[6] = {"MIX", "EDIT", "FX", "SEQ", "GLO", "OPTS"};
+static const uint8_t FAM_FIRST[6] = {PG_HOME, PG_WAVE, PG_FILT, PG_SEG, PG_SETUP, PG_OPTS}, FAM_N[6] = {1, 5, 4, 3, 3, 1};
+static uint32_t fam_of(uint32_t pg) { return pg == PG_HOME ? 0u : pg <= PG_SFX ? 1u : pg <= PG_REV ? 2u : pg <= PG_SONG ? 3u : pg <= PG_OUTPUT ? 4u : 5u; }
 static const char *const DTIME_NAME[6] = {"1/4", "1/8", "1/16", "1/32", "8T", "16T"};
 static const char *const CLICK_NAME[3] = {"OFF", "REC", "ON"};
 static const char *const CIN_NAME[3] = {"OFF", "1 BAR", "2 BARS"};
@@ -224,6 +224,16 @@ static void page_cols(char lab[4][8], char val[4][12])   /* (val: an own sample'
     case PG_OUTPUT:
         COL(0, "SMOOTH", cat(val[0], sp_smooth ? "ON" : "OFF"));
         break;
+    case PG_OPTS:
+        if (smk_zp_midi_ch == 0) {
+            COL(0, "ZP CH", cat(val[0], "OMNI"));
+        } else {
+            COL(0, "ZP CH", (cat(val[0], "CH "), num(val[0] + 3, (int32_t)smk_zp_midi_ch, smk_zp_midi_ch >= 10 ? 2 : 1, 0)));
+        }
+        COL(1, "CLOCK", cat(val[1], CLOCK_MODE_NAMES[smk_midi_clock_mode % 4u]));
+        COL(2, "CLK OUT", cat(val[2], smk_midi_clock_send ? "ON" : "OFF"));
+        COL(3, "EXIT", cat(val[3], "<--"));
+        break;
     default:
         break;
     }
@@ -305,6 +315,15 @@ static void draw_lcd(void)                      /* the LCD: big the state, below
         cv_rect(10, 34, (int32_t)(w < 212u ? w : 212u), 3, P_LCDINK);
     } else if (ui.msg[0] && (int32_t)(fm1_ms - ui.msg_until) < 0) {
         cat(big, ui.msg);
+    } else if (ui.page == PG_OPTS) {
+        cat(big, "OPTIONS");
+#if BOARD_SMK37
+    } else if (smk_midi_mode) {
+        p = cat(big, "K: ");
+        p = num(p, (int)(smk_midi_ch + 1u), (smk_midi_ch + 1u) >= 10 ? 2 : 1, 0);
+        p = cat(p, " P: ");
+        num(p, (int)(smk_midi_pad_ch + 1u), (smk_midi_pad_ch + 1u) >= 10 ? 2 : 1, 0);
+#endif
     } else if (ui.steps) {                      /* the step grid: the pad, the bar of the keys */
         pad_label(p, ui.sel);
         p = cat(p + 2, " BAR ");
@@ -331,19 +350,10 @@ static void draw_lcd(void)                      /* the LCD: big the state, below
         p = cat(p, ".");
         num(p, (int32_t)(t % SQ_BAR / SQ_PPQ + 1u), 1, 0);
     } else {
-#if BOARD_SMK37
-        if (smk_midi_mode) {
-            p = cat(big, "K:");
-            p = num(p, (int)(smk_midi_ch + 1u), (smk_midi_ch + 1u) >= 10 ? 2 : 1, 0);
-            p = cat(p, " P:");
-            num(p, (int)(smk_midi_pad_ch + 1u), (smk_midi_pad_ch + 1u) >= 10 ? 2 : 1, 0);
-        } else
-#endif
-        {
-            pad_label(p, ui.sel);
-            p = cat(p + 2, " ");
-            cat(p, sound_name(ui.sel));
-        }
+        pad_label(p, ui.sel);
+        p = cat(p + 2, " ");
+        cat(p, sound_name(ui.sel));
+    }
     }
     {   /* top right, small: the tempo (REC / COUNT / ARMED before it), below it the page; what does not fit
          * beside the big line is left out (the big line wins) */
@@ -860,6 +870,29 @@ static void knob(uint32_t n, int32_t d)
     case PG_OUTPUT:
         if (n == 0u) sp_smooth = one > 0;         /* (right: on, left: off) */
         break;
+    case PG_OPTS:
+        if (n == 0u) {
+            smk_zp_midi_ch = (uint8_t)sp_clamp((int32_t)smk_zp_midi_ch + one, 0, 16);
+            char msg[16] = "ZP CH: ";
+            if (smk_zp_midi_ch == 0) cat(msg, "OMNI");
+            else num(msg + 7, (int32_t)smk_zp_midi_ch, smk_zp_midi_ch >= 10 ? 2 : 1, 0);
+            ui_say(msg);
+        }
+        if (n == 1u) {
+            smk_midi_clock_mode = (uint8_t)sp_clamp((int32_t)smk_midi_clock_mode + one, 0, 3);
+            char msg[16] = "CLOCK: ";
+            cat(msg, CLOCK_MODE_NAMES[smk_midi_clock_mode % 4u]);
+            ui_say(msg);
+        }
+        if (n == 2u) {
+            smk_midi_clock_send ^= 1u;
+            ui_say(smk_midi_clock_send ? "CLK OUT: ON" : "CLK OUT: OFF");
+        }
+        if (n == 3u && d != 0) {
+            page(PG_HOME);
+            ui_say("OPTIONS: CLOSED");
+        }
+        break;
     default:
         break;
     }
@@ -977,7 +1010,7 @@ static void ui_leds(uint32_t *btn, uint32_t *keys, uint32_t *glow)
     if (sq.playing && blink) b |= 1u << B_ENV;   /* (the beat: TAP's guide) */
     if (sq.song_mode) b |= 1u << B_SAVE;
     fam = ui.page;
-    b |= 1u << (fam == PG_HOME ? B_HOME : fam <= PG_SFX ? B_EDIT : fam <= PG_REV ? B_FX : fam <= PG_SONG ? B_SEQ : B_GLO);
+    b |= 1u << (fam == PG_HOME ? B_HOME : fam <= PG_SFX ? B_EDIT : fam <= PG_REV ? B_FX : fam <= PG_SONG ? B_SEQ : fam <= PG_OUTPUT ? B_GLO : B_HOME);
     if ((ui.held >> B_FX) & 1u)                  /* FX held: OCT- / OCT+ lit while REV / ECHO THROW */
         b |= (uint32_t)(sp_thr_req & 1u) << B_OCTDN | (uint32_t)(sp_thr_req >> 1 & 1u) << B_OCTUP;
     else
