@@ -42,10 +42,10 @@ const ENCODERS = [
   { id: 1,   name: "ENC_ACT_KNOB2",  label: "KNOB 2 (Screen Col 2)",   desc: "Parameter column 2" },
   { id: 2,   name: "ENC_ACT_KNOB3",  label: "KNOB 3 (Screen Col 3)",   desc: "Parameter column 3" },
   { id: 3,   name: "ENC_ACT_KNOB4",  label: "KNOB 4 (Screen Col 4)",   desc: "Parameter column 4" },
-  { id: 4,   name: "ENC_ACT_TEMPO",  label: "TEMPO (BPM / Select)",    desc: "Tempo / Selection encoder" },
-  { id: 5,   name: "ENC_ACT_PADSEL", label: "PAD SEL (Track Select)",  desc: "Track / Pad selection" },
-  { id: 6,   name: "ENC_ACT_SAMPLE", label: "SAMPLE (Preset / Wave)",  desc: "Sample & preset browser" },
-  { id: 7,   name: "ENC_ACT_MASTER", label: "MASTER (Main Output)",    desc: "Main output level" },
+  { id: 4,   name: "ENC_ACT_TEMPO",  label: "SELECT (K5: Tempo / Sel)", desc: "Selection / Tempo encoder" },
+  { id: 5,   name: "ENC_ACT_PRESET", label: "PRESETS (K6: Presets/Sample)", desc: "Preset / Sample browser" },
+  { id: 6,   name: "ENC_ACT_ALGO",   label: "ALGORITHM (K7: Algo/Sound)", desc: "Track / Sound selection" },
+  { id: 7,   name: "ENC_ACT_MASTER", label: "VOLUME (K8: Master)",     desc: "Main output level" },
   { id: 255, name: "ENC_ACT_NONE",   label: "[Unassigned]",            desc: "Encoder disabled" }
 ];
 
@@ -129,7 +129,7 @@ const SMKZP12_DEFAULT_BUTTONS = [
   13   // BTN 17: SEQ REC -> ACT_REC (Record / Clear in ZP-12)
 ];
 
-const SMKZP12_DEFAULT_ENCODERS = [0, 1, 2, 3, 4, 6, 5, 7];
+const SMKZP12_DEFAULT_ENCODERS = [0, 1, 2, 3, 4, 5, 6, 7];
 const SMKZP12_DEFAULT_FADERS = [0, 0, 0, 0];
 
 const DEFAULT_MIDI_CONFIG = {
