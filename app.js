@@ -109,28 +109,28 @@ const BUTTON_SHORT_NAMES = [
 
 // Default SMK-zp12 Hardware Mapping
 const SMKZP12_DEFAULT_BUTTONS = [
-  5,   // BTN 00: KNOB BANK -> ACT_LFO
-  16,  // BTN 01: FADER BANK -> ACT_FBANK
-  14,  // BTN 02: < (LEFT) -> ACT_PREV
-  15,  // BTN 03: > (RIGHT) -> ACT_NEXT
-  0,   // BTN 04: OCTAVE - -> ACT_OCTDN
-  1,   // BTN 05: OCTAVE + -> ACT_OCTUP
-  10,  // BTN 06: ARP -> ACT_ARP
-  18,  // BTN 07: NOTE REPEAT -> ACT_REPEAT
-  3,   // BTN 08: SCALE -> ACT_SCALE
-  19,  // BTN 09: CHORD -> ACT_CHORD
-  7,   // BTN 10: GLOBE -> ACT_GLO
-  255, // BTN 11: BT -> ACT_NONE
-  8,   // BTN 12: PATCH -> ACT_HOME
-  6,   // BTN 13: PARA -> ACT_EDIT
-  2,   // BTN 14: FX -> ACT_FX
-  11,  // BTN 15: SEQ -> ACT_SEQ
-  12,  // BTN 16: SEQ PLAY -> ACT_PLAY
-  13   // BTN 17: SEQ REC -> ACT_REC
+  17,  // BTN 00: KNOB BANK -> ACT_SEL (Bank AB vs CD in ZP-12 / Knob Bank in MIDI)
+  16,  // BTN 01: FADER BANK -> ACT_FBANK (Fader Bank 1-4 vs 5-8)
+  14,  // BTN 02: < (LEFT) -> ACT_PREV (Previous Page in ZP-12 / Pad Bank A in MIDI)
+  15,  // BTN 03: > (RIGHT) -> ACT_NEXT (Next Page in ZP-12 / Pad Bank B in MIDI)
+  20,  // BTN 04: OCTAVE - -> ACT_KBD_OCTDN (Keyboard Octave Down)
+  21,  // BTN 05: OCTAVE + -> ACT_KBD_OCTUP (Keyboard Octave Up)
+  10,  // BTN 06: ARP -> ACT_ARP (Multi-pitch in ZP-12 / MIDI Arpeggiator)
+  18,  // BTN 07: NOTE REPEAT -> ACT_REPEAT (Root Key Select)
+  3,   // BTN 08: SCALE -> ACT_SCALE (Scale Mode)
+  19,  // BTN 09: CHORD -> ACT_CHORD (Chord Mode)
+  7,   // BTN 10: GLOBE -> ACT_GLO (Mutes in ZP-12 / Hold to change MIDI Ch in MIDI)
+  255, // BTN 11: BT -> ACT_NONE (Tap Tempo)
+  8,   // BTN 12: PATCH -> ACT_HOME (Home / Mix in ZP-12)
+  6,   // BTN 13: PARA -> ACT_EDIT (Edit Sound in ZP-12)
+  2,   // BTN 14: FX -> ACT_FX (FX / Punch-in in ZP-12)
+  11,  // BTN 15: SEQ -> ACT_SEQ (Step Sequencer in ZP-12)
+  12,  // BTN 16: SEQ PLAY -> ACT_PLAY (Play / Stop / MIDI Start-Stop)
+  13   // BTN 17: SEQ REC -> ACT_REC (Record / Clear in ZP-12)
 ];
 
-const SMKZP12_DEFAULT_ENCODERS = [0, 1, 2, 3, 4, 5, 6, 7];
-const SMKZP12_DEFAULT_FADERS = [0, 1, 2, 3];
+const SMKZP12_DEFAULT_ENCODERS = [0, 1, 2, 3, 4, 6, 5, 7];
+const SMKZP12_DEFAULT_FADERS = [0, 0, 0, 0];
 
 const DEFAULT_MIDI_CONFIG = {
   keyboardCh: 1,
