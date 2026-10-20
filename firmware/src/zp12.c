@@ -139,12 +139,10 @@ static void ota_commit(const uint8_t *parm)
 static uint8_t smk_scale_mode = 0;
 static uint8_t smk_root_note = 0;
 static uint8_t smk_chord_mode = 0;
-static uint8_t smk_fader_bank = 0;
 static int8_t smk_kbd_oct = 0;
 static uint8_t smk_midi_enc_bank = 0;
 static uint8_t smk_midi_fad_bank = 0;
 static uint8_t smk_midi_pad_bank = 0;
-static int32_t smk_master = 512;
 static uint32_t smk_bt_flash_until = 0;
 
 static const char *const SCALE_NAMES[5] = {
@@ -403,6 +401,7 @@ static void zp12_main(void)
     uint32_t i, prev_notes = 0, t_frame = 0, seq_down = 0, seq_used = 0, t_sig = 0, t_change = 0, last_sig = 0, save_later = 0;
     int32_t knob_avg = 512 * 16;
     (void)seq_down;
+    (void)knob_avg;
     for (i = 0; i < KIT_NWAVE; i++) {
         sp_wave[i].d = KIT_DATA + KIT_WAVE[i].off;
         sp_wave[i].n = KIT_WAVE[i].n;
