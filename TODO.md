@@ -62,7 +62,7 @@ Released: 0.9 (FM-1_979). Open, from the user's tests:
       not saved); OUT: CUT / RESO `--` on CH 3-8; the editor samples (getUserMedia, AudioWorklet, threshold, stop when the
       room is full). Not yet tried on the device.
 - [ ] Idea: "Play in the browser" as other hub firmwares have (WASM build of the host code: the real UI on a canvas,
-      sp_core / sp_seq in an AudioWorklet, the computer keyboard as the keys); then `play=` in tools/fm1_sync.py.
+      sp_core / sp_seq in an AudioWorklet, the computer keyboard as the keys); then `play=` in the hub's tools/fm1_sync.py (repo thehub).
 - [ ] Roadmap E: the loop length (BARS 1-32 / AUTO) shown while REC / ARMED, a knob changes it there.
 - [ ] Mute / solo saved? (now a performance state, gone at power-off, as the DJ filter.)
 - [x] 1.9.2: SMOOTH (GLO > OUTPUT, saved, ZS_VER 6): the jump at a cut / end / TRUNC start bridged in ~1 ms (the
