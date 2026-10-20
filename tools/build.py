@@ -168,7 +168,13 @@ def build_app():
             ("cc", *flags, "-c", FW / "src" / "zp12.c", "-o", OUT / "zp12.o")]
     tc_all(*cmds)
     elf = OUT / "zp12.elf"
-    tc("pi32v2/bin/ld", "--gc-sections", "-e", "_start", "-T", FW / "app.ld", OUT / "crt0.o", OUT / "fm1_vec.o",
+    ld_script = FW / "app.ld"
+    if APP_SLOT != 0x8DFBC:
+        ld_content = re.sub(r"(XIP\s*\(rx\)\s*:\s*ORIGIN\s*=\s*0x02000120,\s*LENGTH\s*=\s*)0x[0-9a-fA-F]+",
+                            rf"\g<1>{APP_SLOT:#x}", (FW / "app.ld").read_text())
+        ld_script = OUT / "app.ld"
+        ld_script.write_text(ld_content)
+    tc("pi32v2/bin/ld", "--gc-sections", "-e", "_start", "-T", ld_script, OUT / "crt0.o", OUT / "fm1_vec.o",
        OUT / "fm1_isr.o", OUT / "zp12.o", "-o", elf)
     for sect in ("text.bin", "data.bin", "ramtext.bin"):
         (OUT / sect).unlink(missing_ok=True)

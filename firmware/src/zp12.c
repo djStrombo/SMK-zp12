@@ -1083,11 +1083,11 @@ static void zp12_main(void)
         }
 #endif
         {   /* the LEDs: built aside, then swapped in (the scan never shows half of them) */
-            uint32_t lb, lk, lg, id;
+            uint32_t lb, lk, lg;
             ui_leds(&lb, &lk, &lg);
 #if !BOARD_SMK37
             uint8_t nl[FM1_NCOL], nd[FM1_NCOL];
-            uint32_t c, r;
+            uint32_t c, r, id;
             memset(nl, 0, sizeof nl);
             memset(nd, 0, sizeof nd);
             for (c = 0; c < FM1_NCOL; c++)
