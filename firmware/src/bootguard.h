@@ -26,6 +26,11 @@ static uint32_t bootguard_begin(bootguard_t *b)
 }
 static int bootguard_manual(uint32_t buttons)
 {
+#if BOARD_SMK37
+    (void)buttons;
+    return 0;                        /* On SMK-37, do not trigger rescue on knob bank button */
+#else
     return (buttons & 3u) == 1u;     /* physical OCT- alone; both keep calibration */
+#endif
 }
 #endif
