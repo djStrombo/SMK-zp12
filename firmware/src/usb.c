@@ -123,6 +123,9 @@ static volatile uint32_t so_w, so_r;
 #define MQ 64u
 static uint32_t midi_in_q[MQ], midi_out_q[MQ];
 static volatile uint32_t mi_w, mi_r, mo_w, mo_r;
+#if BOARD_SMK37
+void smk_trs_tx_byte(uint8_t byte);
+#endif
 static void midi_out_event(uint32_t pkt)            /* from the audio ISR */
 {
 #if BOARD_SMK37
