@@ -50,6 +50,8 @@ static const char *const DTIME_NAME[6] = {"1/4", "1/8", "1/16", "1/32", "8T", "1
 static const char *const CLICK_NAME[3] = {"OFF", "REC", "ON"};
 static const char *const CIN_NAME[3] = {"OFF", "1 BAR", "2 BARS"};
 
+static void page(uint32_t p);
+
 static struct {
     uint8_t pair;                               /* 0: banks A + B on the keys, 1: C + D */
     uint8_t sel;                                /* the sound the knobs edit, 0..31 */
@@ -232,7 +234,7 @@ static void page_cols(char lab[4][8], char val[4][12])   /* (val: an own sample'
         }
         COL(1, "CLOCK", cat(val[1], CLOCK_MODE_NAMES[smk_midi_clock_mode % 4u]));
         COL(2, "CLK OUT", cat(val[2], smk_midi_clock_send ? "ON" : "OFF"));
-        COL(3, "EXIT", cat(val[3], "<--"));
+        COL(3, "FULL VEL", cat(val[3], smk_full_velocity ? "ON" : "OFF"));
         break;
     default:
         break;
@@ -353,7 +355,6 @@ static void draw_lcd(void)                      /* the LCD: big the state, below
         pad_label(p, ui.sel);
         p = cat(p + 2, " ");
         cat(p, sound_name(ui.sel));
-    }
     }
     {   /* top right, small: the tempo (REC / COUNT / ARMED before it), below it the page; what does not fit
          * beside the big line is left out (the big line wins) */
@@ -661,7 +662,9 @@ static void key_down(uint32_t k, int erase)
         return;
     }
     if (ui.multi && !erase) {                    /* MULTI PITCH: the sound, F4 (key 12) as written */
-        pad_hit_at(ui.sel, 110, (int32_t)k - 12);
+        uint32_t raw_v = fm1_in.key_vel[k];
+        uint32_t vel = smk_full_velocity ? 127u : (raw_v ? raw_v : 100u);
+        pad_hit_at(ui.sel, vel, (int32_t)k - 12);
         return;
     }
     pad = ui.multi ? ui.sel : key_pad(k);
@@ -675,7 +678,11 @@ static void key_down(uint32_t k, int erase)
         }
         return;
     }
-    pad_hit(pad, 110);
+    {
+        uint32_t raw_v = fm1_in.key_vel[k];
+        uint32_t vel = smk_full_velocity ? 127u : (raw_v ? raw_v : 100u);
+        pad_hit(pad, vel);
+    }
 }
 
 static int again(uint32_t which)                 /* a destructive turn: the first arms (AGAIN), the second acts */
@@ -888,9 +895,9 @@ static void knob(uint32_t n, int32_t d)
             smk_midi_clock_send ^= 1u;
             ui_say(smk_midi_clock_send ? "CLK OUT: ON" : "CLK OUT: OFF");
         }
-        if (n == 3u && d != 0) {
-            page(PG_HOME);
-            ui_say("OPTIONS: CLOSED");
+        if (n == 3u) {
+            smk_full_velocity ^= 1u;
+            ui_say(smk_full_velocity ? "FULL VEL: ON" : "FULL VEL: OFF");
         }
         break;
     default:

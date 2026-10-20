@@ -584,8 +584,8 @@ static void zp12_main(void)
                                 int32_t m_note = 48 + (int32_t)ki + ((int32_t)smk_kbd_oct * 12);
                                 m_note = sp_clamp(m_note, 0, 127);
                                 int32_t q_note = smk_quantize_note(m_note);
-                                uint32_t vel = fm1_in.key_vel[ki];
-                                if (!vel) vel = 96;
+                                uint32_t raw_v = fm1_in.key_vel[ki];
+                                uint32_t vel = smk_full_velocity ? 127u : (raw_v ? raw_v : 96u);
                                 smk_arp_cur_notes[smk_arp_cur_cnt++] = (uint8_t)q_note;
                                 midi_out_event(0x09u | ((0x90u | (smk_midi_ch & 0x0Fu)) << 8) | ((uint32_t)q_note << 16) | (vel << 24));
                             }
@@ -620,8 +620,8 @@ static void zp12_main(void)
                             int32_t m_note = 48 + (int32_t)ki + ((int32_t)smk_kbd_oct * 12);
                             m_note = sp_clamp(m_note, 0, 127);
                             int32_t q_note = smk_quantize_note(m_note);
-                            uint32_t vel = fm1_in.key_vel[ki];
-                            if (!vel) vel = 96;
+                            uint32_t raw_v = fm1_in.key_vel[ki];
+                            uint32_t vel = smk_full_velocity ? 127u : (raw_v ? raw_v : 96u);
                             smk_arp_cur_notes[smk_arp_cur_cnt++] = (uint8_t)q_note;
                             midi_out_event(0x09u | ((0x90u | (smk_midi_ch & 0x0Fu)) << 8) | ((uint32_t)q_note << 16) | (vel << 24));
                         }
@@ -646,8 +646,8 @@ static void zp12_main(void)
                         /* Chord harmonization */
                         int32_t cnotes[5];
                         uint32_t cnt = smk_get_chord_notes(q_note, cnotes);
-                        uint32_t vel = fm1_in.key_vel[ki];
-                        if (!vel) vel = 96;
+                        uint32_t raw_v = fm1_in.key_vel[ki];
+                        uint32_t vel = smk_full_velocity ? 127u : (raw_v ? raw_v : 96u);
 
                         smk_key_chord_cnt[ki] = (uint8_t)cnt;
                         for (uint32_t c = 0; c < cnt; c++) {
@@ -693,13 +693,13 @@ static void zp12_main(void)
                         ui.force = 1;
                     }
                 }
-            } else {
+            } else if (smk_midi_mode) {
                 uint32_t pad_base = smk_midi_pad_bank ? 52u : 36u;
                 for (pi = 0; pi < 16u; pi++) {
                     uint16_t pbit = 1u << pi;
                     if (pd & pbit) {
-                        uint32_t vel = fm1_in.pad_press[pi];
-                        if (!vel) vel = 100;
+                        uint32_t raw_v = fm1_in.pad_vel[pi] ? fm1_in.pad_vel[pi] : fm1_in.pad_press[pi];
+                        uint32_t vel = smk_full_velocity ? 127u : (raw_v ? raw_v : 100u);
                         midi_out_event(0x09u | ((0x90u | (smk_midi_pad_ch & 0x0Fu)) << 8) | ((pad_base + pi) << 16) | ((vel & 0x7Fu) << 24));
                         uint32_t pad_num = (smk_midi_pad_bank ? 16u : 0u) + pi + 1u;
                         uint32_t note = pad_base + pi;
@@ -712,6 +712,17 @@ static void zp12_main(void)
                     }
                     if (pu & pbit) {
                         midi_out_event(0x08u | ((0x80u | (smk_midi_pad_ch & 0x0Fu)) << 8) | ((pad_base + pi) << 16) | (0x40u << 24));
+                    }
+                }
+            } else {
+                /* Standalone ZP-12 mode: physical drum pads play the 16 sounds of the current bank with dynamic velocity */
+                for (pi = 0; pi < 16u; pi++) {
+                    uint16_t pbit = 1u << pi;
+                    if (pd & pbit) {
+                        uint32_t raw_v = fm1_in.pad_vel[pi] ? fm1_in.pad_vel[pi] : fm1_in.pad_press[pi];
+                        uint32_t vel = smk_full_velocity ? 127u : (raw_v ? raw_v : 100u);
+                        uint32_t snd = (ui.pair ? 16u : 0u) + pi;
+                        pad_hit(snd, vel);
                     }
                 }
             }

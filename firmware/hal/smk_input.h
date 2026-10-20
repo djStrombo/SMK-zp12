@@ -235,6 +235,7 @@ static volatile struct {
     uint8_t pad_st[SMK_NPAD];    /* 0 idle, 1..SMK_PAD_PEAKN collecting the peak, 0x80 on */
     uint8_t pad_low[SMK_NPAD];
     uint8_t pad_press[SMK_NPAD]; /* pressure 0..127 while on */
+    uint8_t pad_vel[SMK_NPAD];   /* dynamic hit velocity 1..127 */
     uint16_t fad_acc[4];         /* faders: 0..1023 IIR */
     uint8_t fader[4];            /* 0..127 */
     uint16_t wheel[2], pedal, batt;   /* raw 0..1023 (mux C addresses 4, 5, 6, 7) */
@@ -254,6 +255,7 @@ static volatile uint8_t smk_arp_rate = 4;     /* 0:1/4, 1:1/4T, 2:1/8, 3:1/8T, 4
 static volatile uint8_t smk_zp_midi_ch = 0;   /* 0 = OMNI/ALL, 1..16 = CH 1..16 */
 static volatile uint8_t smk_midi_clock_mode = 0; /* 0 = INT, 1 = USB, 2 = TRS, 3 = AUTO */
 static volatile uint8_t smk_midi_clock_send = 0; /* 0 = OFF, 1 = ON */
+static volatile uint8_t smk_full_velocity = 0;   /* 0 = Dynamic, 1 = Full Velocity (127) */
 static volatile uint8_t smk_midi_ch_evt;      /* 0 = none, 1..16 = newly selected channel to announce on UI */
 static volatile uint8_t smk_midi_pad_ch_evt;  /* 0 = none, 1..16 = newly selected pad channel to announce on UI */
 static volatile uint32_t smk_midi_pad_hit_evt; /* bit 31: valid; bits 23..16: pad 1..32; bits 15..8: note; bits 7..0: vel */
@@ -681,7 +683,9 @@ static void smk__pad(uint32_t p, uint32_t raw)
         }
         fm1_in.pad_st[p] = 0x80;
         fm1_in.pad_low[p] = 0;
-        smk__padq(p, smk_vel7(smk_curve(SMK_TRIM_PAD, fm1_in.pad_peak[p])));
+        uint8_t pv = smk_vel7(smk_curve(SMK_TRIM_PAD, fm1_in.pad_peak[p]));
+        fm1_in.pad_vel[p] = pv;
+        smk__padq(p, pv);
         return;
     }
     fm1_in.pad_press[p] = (uint8_t)(raw <= 0x200u ? raw >> 4 : (raw - 0x200u) / 4u + 32u > 127u ? 127u
@@ -690,6 +694,7 @@ static void smk__pad(uint32_t p, uint32_t raw)
         if (++fm1_in.pad_low[p] >= 2u) {
             fm1_in.pad_st[p] = 0;
             fm1_in.pad_press[p] = 0;
+            fm1_in.pad_vel[p] = 0;
             smk__padq(p, 0);
         }
     } else {
