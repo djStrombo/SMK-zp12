@@ -252,7 +252,7 @@ static volatile uint8_t smk_midi_mode;        /* 0 = ZP-12 Mode, 1 = MIDI Contro
 static volatile uint8_t smk_midi_arp_on;      /* 0 = Arp Off, 1 = MIDI Arp On */
 static volatile uint8_t smk_arp_mode;         /* 0 = ROLL, 1 = UP, 2 = DOWN, 3 = UP/DN, 4 = RANDOM */
 static volatile uint8_t smk_arp_rate = 4;     /* 0:1/4, 1:1/4T, 2:1/8, 3:1/8T, 4:1/16, 5:1/16T, 6:1/32, 7:1/32T */
-static volatile uint8_t smk_zp_midi_ch = 0;   /* 0 = OMNI/ALL, 1..16 = CH 1..16 */
+static volatile uint8_t smk_zp_midi_ch = 1;   /* 1..16 = CH 1..16 */
 static volatile uint8_t smk_midi_clock_mode = 0; /* 0 = INT, 1 = USB, 2 = TRS, 3 = AUTO */
 static volatile uint8_t smk_midi_clock_send = 0; /* 0 = OFF, 1 = ON */
 static volatile uint8_t smk_velocity_ctrl = 1;   /* 1 = Dynamic Velocity ON, 0 = Full Velocity (127) */

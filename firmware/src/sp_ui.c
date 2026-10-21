@@ -23,8 +23,8 @@
 #define P_PAD RGB(18, 18, 20)
 #define P_RULE RGB(120, 140, 180)
 #define P_STEP RGB(240, 200, 60)
-static const uint16_t FAM_COL[6] = {RGB(38, 62, 112), RGB(236, 166, 44), RGB(52, 176, 160), RGB(200, 46, 50), RGB(150, 156, 172), RGB(90, 120, 180)};
-static const uint16_t FAM_INK[6] = {RGB(255, 255, 255), RGB(30, 24, 10), RGB(8, 30, 28), RGB(255, 255, 255), RGB(20, 24, 34), RGB(255, 255, 255)};
+static const uint16_t FAM_COL[6] = {RGB(38, 62, 112), RGB(236, 166, 44), RGB(52, 176, 160), RGB(200, 46, 50), RGB(150, 156, 172), RGB(242, 148, 32)};
+static const uint16_t FAM_INK[6] = {RGB(255, 255, 255), RGB(30, 24, 10), RGB(8, 30, 28), RGB(255, 255, 255), RGB(20, 24, 34), RGB(30, 24, 10)};
 
 /* a page untouched this long: back to the faders (GLO > SETUP > BACK; 0: never) */
 static const uint8_t UI_BACK_S[5] = {6, 12, 30, 60, 0};
@@ -37,7 +37,7 @@ static const char ZP12_VERSION[] = ZP12_VER;
 
 enum { PG_HOME, PG_WAVE, PG_SOUND, PG_TRUNC, PG_OUT, PG_SFX, PG_FILT, PG_CHO, PG_DLY, PG_REV, PG_SEG, PG_SEG2, PG_SONG, PG_SETUP, PG_CLICK, PG_OUTPUT, PG_OPTS, PG_N };
 static const char *const PG_NAME[PG_N] = {"MIX", "WAVE", "SOUND", "TRUNC", "OUT", "SENDS", "FILTER", "CHORUS", "DELAY", "REVERB",
-                                          "LOOP", "TOOLS", "SONG", "SETUP", "CLICK", "OUTPUT", "OPTIONS"};
+                                          "LOOP", "TOOLS", "SONG", "SETUP", "CLICK", "OUTPUT", "MIDI"};
 /* buttons: the printed labels' matrix ids (as SLOOP's PANEL_DEFAULT); SEL is SLOOP's SCL */
 enum { B_OCTDN = 0, B_OCTUP = 1, B_FX = 2, B_SEL = 3, B_ENV = 4, B_LFO = 5, B_EDIT = 6, B_GLO = 7, B_HOME = 8,
        B_SAVE = 9, B_ARP = 10, B_SEQ = 11, B_PLAY = 12, B_REC = 13 };
@@ -227,13 +227,9 @@ static void page_cols(char lab[4][8], char val[4][12])   /* (val: an own sample'
         COL(0, "SMOOTH", cat(val[0], sp_smooth ? "ON" : "OFF"));
         break;
     case PG_OPTS:
-        if (smk_zp_midi_ch == 0) {
-            COL(0, "MIDI", cat(val[0], "OMNI"));
-        } else {
-            COL(0, "MIDI", (cat(val[0], "CH "), num(val[0] + 3, (int32_t)smk_zp_midi_ch, smk_zp_midi_ch >= 10 ? 2 : 1, 0)));
-        }
-        COL(1, "CLOCK", cat(val[1], smk_midi_clock_mode ? "USB" : "INT"));
-        COL(2, "ROUTE", cat(val[2], smk_midi_clock_send ? "SND" : "RTN"));
+        COL(0, "MIDI", (cat(val[0], "CH "), num(val[0] + 3, (int32_t)smk_zp_midi_ch, smk_zp_midi_ch >= 10 ? 2 : 1, 0)));
+        COL(1, "CLOCK", cat(val[1], CLOCK_MODE_NAMES[smk_midi_clock_mode % 3u]));
+        COL(2, "SYNC", cat(val[2], (smk_midi_clock_mode != 1) ? "SND" : (smk_midi_clock_send ? "SND" : "RTN")));
         COL(3, "VEL", cat(val[3], smk_velocity_ctrl ? "ON" : "OFF"));
         break;
     default:
@@ -253,7 +249,12 @@ static void draw_head(void)                     /* the header: the name; on a pa
     if (on_page()) {
         uint32_t fm = fam_of(ui.page);
         char b[24], *p = cat(b, FAM_NAME[fm]);
-        if (FAM_N[fm] > 1u) { p = cat(p, " > "); cat(p, PG_NAME[ui.page]); }
+        if (ui.page == PG_OPTS) {
+            b[0] = 0;
+            cat(b, "OPTIONS > MIDI");
+        } else if (FAM_N[fm] > 1u) {
+            p = cat(p, " > "); cat(p, PG_NAME[ui.page]);
+        }
         cv_rect(44, 1, 194, 18, FAM_COL[fm]);
         cv_text_on(50, 2, &FONT_S, b, FAM_INK[fm], FAM_COL[fm]);
         cv_text_on(51, 2, &FONT_S, b, FAM_INK[fm], FAM_COL[fm]);
@@ -270,10 +271,6 @@ static void draw_tabs(void)
     char b[24], *p = b;
     b[0] = 0;
     cv_begin(232, 62, P_NAVY);
-    if (fm == 5u) {
-        cv_blit(4, 100);
-        return;
-    }
     cv_text_on(8, 2, &FONT_L, FAM_NAME[fm], FAM_COL[fm], P_NAVY);
     if (fm == 1u) {                              /* EDIT: the pad and its sample */
         pad_label(p, ui.sel);
@@ -284,6 +281,9 @@ static void draw_tabs(void)
     } else if (fm == 3u) {
         p = cat(p, "LOOP ");
         num(p, sq.seg + 1, sq.seg + 1u >= 10u ? 2u : 1u, 0);
+    } else if (fm == 5u) {                       /* OPTS: the MIDI channel */
+        p = cat(p, "CH ");
+        num(p, (int32_t)smk_zp_midi_ch, smk_zp_midi_ch >= 10 ? 2 : 1, 0);
     }
     cv_text_on(224 - text_w(&FONT_S, b), 14, &FONT_S, b, C_WHITE, P_NAVY);
     for (i = 0; i < n; i++) {
@@ -583,22 +583,47 @@ static void pad_hit_at(uint32_t k, uint32_t vel, int32_t semis)
 }
 static void pad_hit(uint32_t k, uint32_t vel) { pad_hit_at(k, vel, 0); }
 
-/* the white key index of key k (0 = F3 .. 26 = G5), 0xFF for a black key */
+/* the white key index of key k (0..36), 0xFF for a black key */
 static uint32_t white_of(uint32_t k)
 {
-    static const uint8_t WHITE_OF[27] = {0, 0xFF, 1, 0xFF, 2, 0xFF, 3, 4, 0xFF, 5, 0xFF, 6, 7, 0xFF, 8, 0xFF, 9,
-                                         0xFF, 10, 11, 0xFF, 12, 0xFF, 13, 14, 0xFF, 15};   /* F3 .. G5 */
-    return k < 27u ? WHITE_OF[k] : 0xFFu;
+    static const uint8_t WHITE_OF[37] = {
+        29, 0xFF, 30, 0xFF, 31,              /* 0..4: C3 (29), D3 (30), E3 (31) */
+        0, 0xFF, 1, 0xFF, 2, 0xFF, 3, 4,     /* 5..12: F3 (0), G3 (1), A3 (2), B3 (3), C4 (4) */
+        0xFF, 5, 0xFF, 6, 7, 0xFF, 8, 0xFF,  /* 13..20: D4 (5), E4 (6), F4 (7), G4 (8) */
+        9, 0xFF, 10, 11, 0xFF, 12, 0xFF, 13, /* 21..28: A4 (9), B4 (10), C5 (11), D5 (12), E5 (13) */
+        14, 0xFF, 15,                        /* 29..31: F5 (14), G5 (15) */
+        0xFF, 16, 0xFF, 17, 18               /* 32..36: A5 (16), B5 (17), C6 (18) */
+    };
+    return k < 37u ? WHITE_OF[k] : 0xFFu;
 }
-static uint32_t key_pad(uint32_t k)            /* white keys 1-8: bank A (C), 9-16: B (D) */
+
+static uint32_t black_loop_of(uint32_t k)
+{
+    static const uint8_t BLACK_LOOP[37] = {
+        0xFF, 13, 0xFF, 14, 0xFF,            /* 0..4: C#3 = Loop 13, D#3 = Loop 14 */
+        0xFF, 0, 0xFF, 1, 0xFF, 2, 0xFF, 0xFF,/* 5..12: F#3 = Loop 0, G#3 = Loop 1, A#3 = Loop 2 */
+        3, 0xFF, 4, 0xFF, 0xFF, 5, 0xFF, 6,  /* 13..20: C#4 = Loop 3, D#4 = Loop 4, F#4 = Loop 5, G#4 = Loop 6 */
+        0xFF, 7, 0xFF, 0xFF, 8, 0xFF, 9, 0xFF,/* 21..28: A#4 = Loop 7, C#5 = Loop 8, D#5 = Loop 9 */
+        0xFF, 10, 0xFF,                      /* 29..31: F#5 = Loop 10 */
+        11, 0xFF, 12, 0xFF, 0xFF             /* 32..36: G#5 = Loop 11, A#5 = Loop 12 */
+    };
+    return k < 37u ? BLACK_LOOP[k] : 0xFFu;
+}
+
+static uint32_t key_pad(uint32_t k)            /* white keys 0-15: bank A (C), 16+: B (D) */
 {
     uint32_t w = white_of(k);
-    return w != 0xFFu ? ui.pair * 16u + w : 0xFFu;
+    if (w == 0xFFu) return 0xFFu;
+    if (w < 16u) return ui.pair * 16u + w;
+    if (w >= 16u && w < 19u) return (ui.pair ? 0u : 16u) + (w - 16u);
+    if (w >= 29u && w <= 31u) return (ui.pair ? 0u : 16u) + (w - 16u);
+    return 0xFFu;
 }
 
 /* loop (segment) b: now when stopped, else at the end of the loop playing (a black key, a MIDI Program Change); say it */
 static void ui_loop(uint32_t b)
 {
+    if (b >= SQ_NSEG) return;
     char m[24], *p = cat(m, "LOOP ");
     sq_post(RQ_LOOP, 0, b);
     p = num(p, (int32_t)b + 1, b + 1u >= 10u ? 2u : 1u, 0);
@@ -610,7 +635,7 @@ static void ui_loop(uint32_t b)
 static void key_down(uint32_t k, int erase)
 {
     uint32_t pad;
-    if (k >= 27u)
+    if (k >= 37u)
         return;
     if ((ui.held >> B_FX) & 1u) {                /* FX held: white keys 1-4 punch in (zp12.c, sp_punch.c), no pad */
         static const char *const PUNCH[4] = {"ROLL 1/8", "ROLL 1/16", "REVERSE", "TAPE STOP"};
@@ -620,11 +645,12 @@ static void key_down(uint32_t k, int erase)
         return;
     }
     if ((ui.held >> B_GLO) & 1u) {               /* GLO held: white keys 1-8 mute channels 1-8, 9-16 solo them */
-        uint32_t w = white_of(k), c = w % 8u;
-        char m[24], *p;
-        ui.glo_used = 1;
+        uint32_t w = white_of(k);
         if (w == 0xFFu)
             return;
+        uint32_t c = w % 8u;
+        char m[24], *p;
+        ui.glo_used = 1;
         if (w < 8u) sp_mute ^= (uint8_t)(1u << c);
         else sp_solo ^= (uint8_t)(1u << c);
         p = cat(m, w < 8u ? "MUTE " : "SOLO ");
@@ -634,10 +660,9 @@ static void key_down(uint32_t k, int erase)
         return;
     }
     if ((ui.held >> B_SAVE) & 1u) {              /* SAVE held: a black key saves the loop into that loop */
-        if (white_of(k) == 0xFFu) {
-            uint32_t b = 0, i;
+        uint32_t b = black_loop_of(k);
+        if (b != 0xFFu && b < SQ_NSEG) {
             char m[24], *p = cat(m, "LOOP ");
-            for (i = 0; i < k; i++) b += white_of(i) == 0xFFu;
             if (b != sq.seg)
                 sq_post(RQ_COPY, 0, b);
             p = num(p, (int32_t)b + 1, b + 1u >= 10u ? 2u : 1u, 0);
@@ -650,23 +675,24 @@ static void key_down(uint32_t k, int erase)
     }
     if (ui.steps) {                              /* SEQ held: a white key sets / clears the selected pad's step */
         uint32_t w = white_of(k);
-        if (w != 0xFFu) {
+        if (w != 0xFFu && w < 16u) {
             sq_post(RQ_STEP, ui.sel, ui.step_bar * SQ_BAR + w * 24u);
             if (!sq_seg[sq.seg % SQ_NSEG].bars)
                 sq_seg[sq.seg % SQ_NSEG].bars = 1;   /* (a step written makes an AUTO segment a bar long) */
         }
         return;
     }
-    if (white_of(k) == 0xFFu && !ui.multi && !erase) {   /* a black key: loop (segment) 1-11, at the loop's end */
-        uint32_t b = 0, i;
-        for (i = 0; i < k; i++) b += white_of(i) == 0xFFu;
-        ui_loop(b);
-        return;
+    if (!ui.multi && !erase) {
+        uint32_t b = black_loop_of(k);
+        if (b != 0xFFu && b < SQ_NSEG) {
+            ui_loop(b);
+            return;
+        }
     }
-    if (ui.multi && !erase) {                    /* MULTI PITCH: the sound, F4 (key 12) as written */
-        uint32_t raw_v = (k + SMK_KEY_F3 < FM1_NKEY && fm1_in.key_vel[k + SMK_KEY_F3]) ? fm1_in.key_vel[k + SMK_KEY_F3] : fm1_in.key_vel[k];
+    if (ui.multi && !erase) {                    /* MULTI PITCH: F4 (key 17) is 0 semitones */
+        uint32_t raw_v = (k < FM1_NKEY) ? fm1_in.key_vel[k] : 0;
         uint32_t vel = smk_velocity_ctrl ? (raw_v ? raw_v : 100u) : 127u;
-        pad_hit_at(ui.sel, vel, (int32_t)k - 12);
+        pad_hit_at(ui.sel, vel, (int32_t)k - 17);
         return;
     }
     pad = ui.multi ? ui.sel : key_pad(k);
@@ -681,7 +707,7 @@ static void key_down(uint32_t k, int erase)
         return;
     }
     {
-        uint32_t raw_v = (k + SMK_KEY_F3 < FM1_NKEY && fm1_in.key_vel[k + SMK_KEY_F3]) ? fm1_in.key_vel[k + SMK_KEY_F3] : fm1_in.key_vel[k];
+        uint32_t raw_v = (k < FM1_NKEY) ? fm1_in.key_vel[k] : 0;
         uint32_t vel = smk_velocity_ctrl ? (raw_v ? raw_v : 100u) : 127u;
         pad_hit(pad, vel);
     }
@@ -881,19 +907,28 @@ static void knob(uint32_t n, int32_t d)
         break;
     case PG_OPTS:
         if (n == 0u) {
-            smk_zp_midi_ch = (uint8_t)sp_clamp((int32_t)smk_zp_midi_ch + one, 0, 16);
-            char msg[16] = "MIDI: ";
-            if (smk_zp_midi_ch == 0) cat(msg, "OMNI");
-            else { cat(msg, "CH "); num(msg + 9, (int32_t)smk_zp_midi_ch, smk_zp_midi_ch >= 10 ? 2 : 1, 0); }
+            smk_zp_midi_ch = (uint8_t)sp_clamp((int32_t)smk_zp_midi_ch + one, 1, 16);
+            char msg[16] = "MIDI: CH ";
+            num(msg + 9, (int32_t)smk_zp_midi_ch, smk_zp_midi_ch >= 10 ? 2 : 1, 0);
             ui_say(msg);
         }
         if (n == 1u) {
-            smk_midi_clock_mode = (uint8_t)sp_clamp((int32_t)smk_midi_clock_mode + one, 0, 1);
-            ui_say(smk_midi_clock_mode ? "CLOCK: USB" : "CLOCK: INT");
+            smk_midi_clock_mode = (uint8_t)sp_clamp((int32_t)smk_midi_clock_mode + one, 0, 2);
+            if (smk_midi_clock_mode != 1) {
+                smk_midi_clock_send = 1u; /* INT and TRS are always SND */
+            }
+            char msg[16] = "CLOCK: ";
+            cat(msg, CLOCK_MODE_NAMES[smk_midi_clock_mode % 3u]);
+            ui_say(msg);
         }
         if (n == 2u) {
-            smk_midi_clock_send ^= 1u;
-            ui_say(smk_midi_clock_send ? "ROUTE: SND" : "ROUTE: RTN");
+            if (smk_midi_clock_mode == 1) {
+                smk_midi_clock_send = (one < 0) ? 1u : 0u;
+                ui_say(smk_midi_clock_send ? "SYNC: SND" : "SYNC: RTN");
+            } else {
+                smk_midi_clock_send = 1u;
+                ui_say("SYNC: SND");
+            }
         }
         if (n == 3u) {
             smk_velocity_ctrl ^= 1u;

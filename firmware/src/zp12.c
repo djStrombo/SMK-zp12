@@ -163,9 +163,10 @@ static const char *const ARP_RATE_NAMES[8] = {
     "ARP 1/32T"
 };
 
-static const char *const CLOCK_MODE_NAMES[2] = {
+static const char *const CLOCK_MODE_NAMES[3] = {
     "INT",
-    "USB"
+    "USB",
+    "TRS"
 };
 
 static const char *const SCALE_NAMES[5] = {
@@ -469,6 +470,13 @@ static void zp12_main(void)
         uint32_t n = fm1_in.notes, down = n & ~prev_notes, rel, b;
         fm1_service();
         prev_notes = n;
+#if BOARD_SMK37
+        static uint64_t smk_prev_keys = 0;
+        uint64_t cur_k = fm1_in.keys;
+        uint64_t kd = cur_k & ~smk_prev_keys;
+        uint64_t ku = ~cur_k & smk_prev_keys;
+        smk_prev_keys = cur_k;
+#endif
         {   /* SEL held: the faders 5-8; LFO held: ERASE (the pads held lose their hits as the playhead passes) */
             uint32_t bt = fm1_in.buttons, er = 0, k;
 #if BOARD_SMK37
@@ -482,6 +490,23 @@ static void zp12_main(void)
             {
                 ui.held = bt;                               /* (SAVE held + a black key: key_down) */
                 ui.keys = n;                                /* (EDIT > OUT: CHOP turned sets the pads held) */
+#if BOARD_SMK37
+                if ((bt >> B_LFO) & 1u)
+                    for (k = 0; k < FM1_NKEY; k++)
+                        if ((cur_k >> k) & 1u) {
+                            uint32_t pd = ui.multi ? ui.sel : key_pad(k);
+                            if (pd < 32u) er |= 1u << pd;
+                        }
+                sq.erase = er;
+                {   /* FX held: white keys 1-4 punch in, the last one held wins (sp_punch.c); OCT- / OCT+ throw */
+                    int32_t px = -1;
+                    if ((bt >> B_FX) & 1u)
+                        for (k = 0; k < FM1_NKEY; k++)
+                            if (((cur_k >> k) & 1u) && white_of(k) < PN_NFX) px = (int32_t)white_of(k);
+                    pn.req = (int8_t)px;
+                    sp_thr_req = (bt >> B_FX) & 1u ? (uint8_t)((bt >> B_OCTDN & 1u) | (bt >> B_OCTUP & 1u) << 1) : 0u;
+                }
+#else
                 if ((bt >> B_LFO) & 1u)
                     for (k = 0; k < 27u; k++)
                         if ((n >> k) & 1u) {
@@ -497,11 +522,12 @@ static void zp12_main(void)
                     pn.req = (int8_t)px;
                     sp_thr_req = (bt >> B_FX) & 1u ? (uint8_t)((bt >> B_OCTDN & 1u) | (bt >> B_OCTUP & 1u) << 1) : 0u;
                 }
+#endif
             }
 #if BOARD_SMK37
             if (!smk_midi_mode) {
-                for (i = 0; down; i++, down >>= 1)          /* the keys: pads (ui decides which) */
-                    if (down & 1u)
+                for (i = 0; i < FM1_NKEY; i++)
+                    if ((kd >> i) & 1u)
                         key_down(i, (bt >> B_LFO) & 1u);
             }
 #else
@@ -513,18 +539,12 @@ static void zp12_main(void)
 #if BOARD_SMK37
         /* USB & TRS MIDI keybed transmission */
         {
-            static uint64_t smk_prev_keys = 0;
             static uint8_t smk_key_chord_notes[FM1_NKEY][5];
             static uint8_t smk_key_chord_cnt[FM1_NKEY];
             static uint32_t smk_arp_last_ms = 0;
             static uint8_t smk_arp_cur_notes[FM1_NKEY];
             static uint8_t smk_arp_cur_cnt = 0;
             static uint8_t smk_arp_idx = 0;
-
-            uint64_t cur_k = fm1_in.keys;
-            uint64_t kd = cur_k & ~smk_prev_keys;
-            uint64_t ku = ~cur_k & smk_prev_keys;
-            smk_prev_keys = cur_k;
 
             if (smk_midi_mode && smk_midi_arp_on) {
                 /* Arpeggiator mode in MIDI Control */
@@ -1621,6 +1641,7 @@ static void zp12_main(void)
                 uint8_t cable = (uint8_t)((pk & 0x10u) ? 1u : 0u); /* 0 = USB, 1 = TRS */
                 uint8_t clk_accepted = 0;
                 if (smk_midi_clock_mode == 1 && !smk_midi_clock_send && cable == 0) clk_accepted = 1;      /* USB RTN */
+                else if (smk_midi_clock_mode == 2 && cable == 1) clk_accepted = 1;                         /* TRS */
 
                 if (clk_accepted) {
                     if (raw_st == 0xF8u) {
@@ -1642,22 +1663,32 @@ static void zp12_main(void)
                         sq_post(RQ_STOP, 0, 0);
                     }
                 }
-            } else if (cmd == 0x90u && vel && nt >= 36u && nt < 68u) {
-                if (smk_zp_midi_ch == 0 || ch == (smk_zp_midi_ch - 1))
-                    pad_hit(nt - 36u, vel);
-            } else if (cmd == 0xC0u && nt < SQ_NSEG) {
-                if (smk_zp_midi_ch == 0 || ch == (smk_zp_midi_ch - 1))
+            } else if (ch == (smk_zp_midi_ch - 1)) {
+                if (cmd == 0x90u && vel) {
+                    if (nt >= 36u && nt < 68u) {
+                        pad_hit(nt - 36u, vel);
+                    } else if (ui.multi) {
+                        pad_hit_at(ui.sel, vel, (int32_t)nt - 60);
+                    } else {
+                        pad_hit(nt % 32u, vel);
+                    }
+                } else if (cmd == 0xC0u && nt < SQ_NSEG) {
                     ui_loop(nt);
+                }
             }
         }
 #if BOARD_SMK37
-        if (smk_midi_clock_send && smk_midi_clock_mode == 1 && sq.playing) {
+        if (smk_midi_clock_send && sq.playing) {
             static uint32_t last_sq_pos_tick = 0;
             uint32_t cur_sq_pos_tick = sq.pos >> 16;
             if (cur_sq_pos_tick >= last_sq_pos_tick && (cur_sq_pos_tick - last_sq_pos_tick) <= 24u) {
                 while (last_sq_pos_tick < cur_sq_pos_tick) {
                     last_sq_pos_tick++;
-                    midi_out_event(0x0Fu | (0xF8u << 8));
+                    if (smk_midi_clock_mode == 1) {
+                        midi_out_event(0x0Fu | (0xF8u << 8));
+                    } else if (smk_midi_clock_mode == 2) {
+                        smk_trs_tx_byte(0xF8u);
+                    }
                 }
             } else {
                 last_sq_pos_tick = cur_sq_pos_tick;
