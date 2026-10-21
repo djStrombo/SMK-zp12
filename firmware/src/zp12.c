@@ -705,6 +705,7 @@ static void zp12_main(void)
                 for (pi = 0; pi < 16u; pi++) {
                     if (pd & (1u << pi)) {
                         smk_midi_ch = (uint8_t)pi;
+                        smk_zp_midi_ch = (uint8_t)(pi + 1u);
                         char msg[16] = "KBD CH ";
                         num(msg + 7, smk_midi_ch + 1, smk_midi_ch + 1 >= 10 ? 2 : 1, 0);
                         ui_say(msg);
@@ -963,6 +964,7 @@ static void zp12_main(void)
                     ui_say(msg);
                 } else {
                     smk_midi_ch = ((smk_midi_ch + 15) % 16);
+                    smk_zp_midi_ch = (uint8_t)(smk_midi_ch + 1u);
                     char msg[16] = "KBD CH ";
                     num(msg + 7, smk_midi_ch + 1, smk_midi_ch + 1 >= 10 ? 2 : 1, 0);
                     ui_say(msg);
@@ -1010,6 +1012,7 @@ static void zp12_main(void)
                     ui_say(msg);
                 } else {
                     smk_midi_ch = ((smk_midi_ch + 1) % 16);
+                    smk_zp_midi_ch = (uint8_t)(smk_midi_ch + 1u);
                     char msg[16] = "KBD CH ";
                     num(msg + 7, smk_midi_ch + 1, smk_midi_ch + 1 >= 10 ? 2 : 1, 0);
                     ui_say(msg);
@@ -1519,6 +1522,7 @@ static void zp12_main(void)
                                     ui_say(msg);
                                 } else {
                                     smk_midi_ch = (uint8_t)((smk_midi_ch + (d > 0 ? 1 : 15)) % 16);
+                                    smk_zp_midi_ch = (uint8_t)(smk_midi_ch + 1u);
                                     char msg[16] = "KBD CH ";
                                     num(msg + 7, smk_midi_ch + 1, smk_midi_ch + 1 >= 10 ? 2 : 1, 0);
                                     ui_say(msg);

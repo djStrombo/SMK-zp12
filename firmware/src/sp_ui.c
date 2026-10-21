@@ -908,6 +908,8 @@ static void knob(uint32_t n, int32_t d)
     case PG_OPTS:
         if (n == 0u) {
             smk_zp_midi_ch = (uint8_t)sp_clamp((int32_t)smk_zp_midi_ch + one, 1, 16);
+            smk_midi_ch = (uint8_t)(smk_zp_midi_ch - 1u);
+            smk_midi_pad_ch = (uint8_t)(smk_zp_midi_ch - 1u);
             char msg[16] = "MIDI: CH ";
             num(msg + 9, (int32_t)smk_zp_midi_ch, smk_zp_midi_ch >= 10 ? 2 : 1, 0);
             ui_say(msg);

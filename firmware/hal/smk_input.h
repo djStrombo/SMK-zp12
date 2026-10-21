@@ -420,6 +420,7 @@ static void smk__key_event(uint32_t k, uint32_t vel)     /* vel 0 = release */
                 smk_midi_pad_ch_evt = (uint8_t)(k + 1u);
             } else {
                 smk_midi_ch = (uint8_t)k;
+                smk_zp_midi_ch = (uint8_t)(k + 1u);
                 smk_midi_ch_evt = (uint8_t)(k + 1u);
             }
             smk_globe_key_eaten |= (uint16_t)(1u << k);
