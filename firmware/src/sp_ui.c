@@ -586,41 +586,19 @@ static void pad_hit(uint32_t k, uint32_t vel) { pad_hit_at(k, vel, 0); }
 /* the white key index of key k (0..36), 0xFF for a black key */
 static uint32_t white_of(uint32_t k)
 {
-    static const uint8_t WHITE_OF[37] = {
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF,         /* 0..4: C3..E3 omitted when !ui.multi */
-        0, 0xFF, 1, 0xFF, 2, 0xFF, 3, 4,     /* 5..12: F3 (0), G3 (1), A3 (2), B3 (3), C4 (4) */
-        0xFF, 5, 0xFF, 6, 7, 0xFF, 8, 0xFF,  /* 13..20: D4 (5), E4 (6), F4 (7), G4 (8) */
-        9, 0xFF, 10, 11, 0xFF, 12, 0xFF, 13, /* 21..28: A4 (9), B4 (10), C5 (11), D5 (12), E5 (13) */
-        14, 0xFF, 15,                        /* 29..31: F5 (14), G5 (15) */
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF         /* 32..36: G#5..C6 omitted when !ui.multi */
-    };
-    return k < 37u ? WHITE_OF[k] : 0xFFu;
+    static const uint8_t WHITE_OF[27] = {0, 0xFF, 1, 0xFF, 2, 0xFF, 3, 4, 0xFF, 5, 0xFF, 6, 7, 0xFF, 8, 0xFF, 9,
+                                         0xFF, 10, 11, 0xFF, 12, 0xFF, 13, 14, 0xFF, 15};   /* F3 .. G5 */
+    return k < 27u ? WHITE_OF[k] : 0xFFu;
 }
-
-static uint32_t black_loop_of(uint32_t k)
-{
-    static const uint8_t BLACK_LOOP[37] = {
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF,         /* 0..4: C3..E3 omitted when !ui.multi */
-        0xFF, 0, 0xFF, 1, 0xFF, 2, 0xFF, 0xFF,/* 5..12: F#3 = Loop 0, G#3 = Loop 1, A#3 = Loop 2 */
-        3, 0xFF, 4, 0xFF, 0xFF, 5, 0xFF, 6,  /* 13..20: C#4 = Loop 3, D#4 = Loop 4, F#4 = Loop 5, G#4 = Loop 6 */
-        0xFF, 7, 0xFF, 0xFF, 8, 0xFF, 9, 0xFF,/* 21..28: A#4 = Loop 7, C#5 = Loop 8, D#5 = Loop 9 */
-        0xFF, 10, 0xFF,                      /* 29..31: F#5 = Loop 10 */
-        0xFF, 0xFF, 0xFF, 0xFF, 0xFF         /* 32..36: G#5..C6 omitted when !ui.multi */
-    };
-    return k < 37u ? BLACK_LOOP[k] : 0xFFu;
-}
-
-static uint32_t key_pad(uint32_t k)            /* white keys 0-15: bank A (0..15) or B (16..31) */
+static uint32_t key_pad(uint32_t k)            /* white keys 1-8: bank A (C), 9-16: B (D) */
 {
     uint32_t w = white_of(k);
-    if (w == 0xFFu || w >= 16u) return 0xFFu;
-    return ui.pair * 16u + w;
+    return w != 0xFFu ? ui.pair * 16u + w : 0xFFu;
 }
 
 /* loop (segment) b: now when stopped, else at the end of the loop playing (a black key, a MIDI Program Change); say it */
 static void ui_loop(uint32_t b)
 {
-    if (b >= SQ_NSEG) return;
     char m[24], *p = cat(m, "LOOP ");
     sq_post(RQ_LOOP, 0, b);
     p = num(p, (int32_t)b + 1, b + 1u >= 10u ? 2u : 1u, 0);
@@ -632,10 +610,8 @@ static void ui_loop(uint32_t b)
 static void key_down(uint32_t k, int erase)
 {
     uint32_t pad;
-    if (k >= 37u)
+    if (k >= 27u)
         return;
-    if (!ui.multi && (k < 5u || k > 31u))
-        return; /* omit the rest of the keyboard if not in multipitch */
     if ((ui.held >> B_FX) & 1u) {                /* FX held: white keys 1-4 punch in (zp12.c, sp_punch.c), no pad */
         static const char *const PUNCH[4] = {"ROLL 1/8", "ROLL 1/16", "REVERSE", "TAPE STOP"};
         ui.fx_used = 1;
@@ -644,12 +620,11 @@ static void key_down(uint32_t k, int erase)
         return;
     }
     if ((ui.held >> B_GLO) & 1u) {               /* GLO held: white keys 1-8 mute channels 1-8, 9-16 solo them */
-        uint32_t w = white_of(k);
-        if (w == 0xFFu)
-            return;
-        uint32_t c = w % 8u;
+        uint32_t w = white_of(k), c = w % 8u;
         char m[24], *p;
         ui.glo_used = 1;
+        if (w == 0xFFu)
+            return;
         if (w < 8u) sp_mute ^= (uint8_t)(1u << c);
         else sp_solo ^= (uint8_t)(1u << c);
         p = cat(m, w < 8u ? "MUTE " : "SOLO ");
@@ -659,9 +634,10 @@ static void key_down(uint32_t k, int erase)
         return;
     }
     if ((ui.held >> B_SAVE) & 1u) {              /* SAVE held: a black key saves the loop into that loop */
-        uint32_t b = black_loop_of(k);
-        if (b != 0xFFu && b < SQ_NSEG) {
+        if (white_of(k) == 0xFFu) {
+            uint32_t b = 0, i;
             char m[24], *p = cat(m, "LOOP ");
+            for (i = 0; i < k; i++) b += white_of(i) == 0xFFu;
             if (b != sq.seg)
                 sq_post(RQ_COPY, 0, b);
             p = num(p, (int32_t)b + 1, b + 1u >= 10u ? 2u : 1u, 0);
@@ -674,24 +650,23 @@ static void key_down(uint32_t k, int erase)
     }
     if (ui.steps) {                              /* SEQ held: a white key sets / clears the selected pad's step */
         uint32_t w = white_of(k);
-        if (w != 0xFFu && w < 16u) {
+        if (w != 0xFFu) {
             sq_post(RQ_STEP, ui.sel, ui.step_bar * SQ_BAR + w * 24u);
             if (!sq_seg[sq.seg % SQ_NSEG].bars)
                 sq_seg[sq.seg % SQ_NSEG].bars = 1;   /* (a step written makes an AUTO segment a bar long) */
         }
         return;
     }
-    if (!ui.multi && !erase) {
-        uint32_t b = black_loop_of(k);
-        if (b != 0xFFu && b < SQ_NSEG) {
-            ui_loop(b);
-            return;
-        }
+    if (white_of(k) == 0xFFu && !ui.multi && !erase) {   /* a black key: loop (segment) 1-11, at the loop's end */
+        uint32_t b = 0, i;
+        for (i = 0; i < k; i++) b += white_of(i) == 0xFFu;
+        ui_loop(b);
+        return;
     }
-    if (ui.multi && !erase) {                    /* MULTI PITCH: F4 (key 17) is 0 semitones */
-        uint32_t raw_v = (k < FM1_NKEY) ? fm1_in.key_vel[k] : 0;
+    if (ui.multi && !erase) {                    /* MULTI PITCH: the sound, F4 (key 12) as written */
+        uint32_t raw_v = (k + SMK_KEY_F3 < FM1_NKEY && fm1_in.key_vel[k + SMK_KEY_F3]) ? fm1_in.key_vel[k + SMK_KEY_F3] : fm1_in.key_vel[k];
         uint32_t vel = smk_velocity_ctrl ? (raw_v ? raw_v : 100u) : 127u;
-        pad_hit_at(ui.sel, vel, (int32_t)k - 17);
+        pad_hit_at(ui.sel, vel, (int32_t)k - 12);
         return;
     }
     pad = ui.multi ? ui.sel : key_pad(k);
@@ -706,7 +681,7 @@ static void key_down(uint32_t k, int erase)
         return;
     }
     {
-        uint32_t raw_v = (k < FM1_NKEY) ? fm1_in.key_vel[k] : 0;
+        uint32_t raw_v = (k + SMK_KEY_F3 < FM1_NKEY && fm1_in.key_vel[k + SMK_KEY_F3]) ? fm1_in.key_vel[k + SMK_KEY_F3] : fm1_in.key_vel[k];
         uint32_t vel = smk_velocity_ctrl ? (raw_v ? raw_v : 100u) : 127u;
         pad_hit(pad, vel);
     }
@@ -917,6 +892,10 @@ static void knob(uint32_t n, int32_t d)
             smk_midi_clock_mode = (uint8_t)sp_clamp((int32_t)smk_midi_clock_mode + one, 0, 2);
             if (smk_midi_clock_mode != 1) {
                 smk_midi_clock_send = 1u; /* INT and TRS are always SND */
+            } else if (!smk_midi_clock_send) {
+                if (sq.playing) sq_post(RQ_STOP, 0, 0);
+                smk_last_ext_clk_ms = 0;
+                smk_clk_pulse_cnt = 0;
             }
             char msg[16] = "CLOCK: ";
             cat(msg, CLOCK_MODE_NAMES[smk_midi_clock_mode % 3u]);
@@ -925,6 +904,11 @@ static void knob(uint32_t n, int32_t d)
         if (n == 2u) {
             if (smk_midi_clock_mode == 1) {
                 smk_midi_clock_send = (one < 0) ? 1u : 0u;
+                if (!smk_midi_clock_send) {
+                    if (sq.playing) sq_post(RQ_STOP, 0, 0);
+                    smk_last_ext_clk_ms = 0;
+                    smk_clk_pulse_cnt = 0;
+                }
                 ui_say(smk_midi_clock_send ? "SYNC: SND" : "SYNC: RTN");
             } else {
                 smk_midi_clock_send = 1u;

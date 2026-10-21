@@ -490,23 +490,6 @@ static void zp12_main(void)
             {
                 ui.held = bt;                               /* (SAVE held + a black key: key_down) */
                 ui.keys = n;                                /* (EDIT > OUT: CHOP turned sets the pads held) */
-#if BOARD_SMK37
-                if ((bt >> B_LFO) & 1u)
-                    for (k = 0; k < FM1_NKEY; k++)
-                        if ((cur_k >> k) & 1u) {
-                            uint32_t pd = ui.multi ? ui.sel : key_pad(k);
-                            if (pd < 32u) er |= 1u << pd;
-                        }
-                sq.erase = er;
-                {   /* FX held: white keys 1-4 punch in, the last one held wins (sp_punch.c); OCT- / OCT+ throw */
-                    int32_t px = -1;
-                    if ((bt >> B_FX) & 1u)
-                        for (k = 0; k < FM1_NKEY; k++)
-                            if (((cur_k >> k) & 1u) && white_of(k) < PN_NFX) px = (int32_t)white_of(k);
-                    pn.req = (int8_t)px;
-                    sp_thr_req = (bt >> B_FX) & 1u ? (uint8_t)((bt >> B_OCTDN & 1u) | (bt >> B_OCTUP & 1u) << 1) : 0u;
-                }
-#else
                 if ((bt >> B_LFO) & 1u)
                     for (k = 0; k < 27u; k++)
                         if ((n >> k) & 1u) {
@@ -522,12 +505,11 @@ static void zp12_main(void)
                     pn.req = (int8_t)px;
                     sp_thr_req = (bt >> B_FX) & 1u ? (uint8_t)((bt >> B_OCTDN & 1u) | (bt >> B_OCTUP & 1u) << 1) : 0u;
                 }
-#endif
             }
 #if BOARD_SMK37
             if (!smk_midi_mode) {
-                for (i = 0; i < FM1_NKEY; i++)
-                    if ((kd >> i) & 1u)
+                for (i = 0; down; i++, down >>= 1)          /* the keys: pads (ui decides which) */
+                    if (down & 1u)
                         key_down(i, (bt >> B_LFO) & 1u);
             }
 #else
@@ -1396,6 +1378,11 @@ static void zp12_main(void)
             if (fm1_ms < smk_bt_flash_until || ((fm1_in.buttons >> 11) & 1u))
                 bt_led = 1u;
 
+            uint8_t play_led = sq.playing;
+            if (smk_midi_clock_mode == 1 && !smk_midi_clock_send && !sq.playing) {
+                play_led = (uint8_t)(((fm1_ms / 250u) & 1u) != 0u); /* wait blink waiting for USB sync */
+            }
+
             if (smk_midi_mode) {
                 smk_led_physical(0, smk_midi_enc_bank != 0);       /* KNOB BANK */
                 smk_led_physical(1, smk_midi_fad_bank != 0);       /* FADER BANK */
@@ -1413,7 +1400,7 @@ static void zp12_main(void)
                 smk_led_physical(13, slow_blink);                   /* PARA */
                 smk_led_physical(14, slow_blink);                   /* FX */
                 smk_led_physical(15, slow_blink);                   /* SEQ */
-                smk_led_physical(16, sq.playing);                   /* SEQ PLAY */
+                smk_led_physical(16, play_led);                     /* SEQ PLAY */
                 smk_led_physical(17, 0u);                           /* SEQ REC: OFF in MIDI mode */
             } else {
                 smk_led_physical(0, ui.pair);
@@ -1432,7 +1419,7 @@ static void zp12_main(void)
                 smk_led_physical(13, (lb >> B_EDIT) & 1u);
                 smk_led_physical(14, (lb >> B_FX) & 1u);
                 smk_led_physical(15, (lb >> B_SEQ) & 1u || ui.steps);
-                smk_led_physical(16, sq.playing);
+                smk_led_physical(16, play_led);                     /* SEQ PLAY */
                 smk_led_physical(17, sq.recording || ((sq.rec_arm || sq.dub_wait) && (fm1_ms / 250u) & 1u));
             }
 
