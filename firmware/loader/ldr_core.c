@@ -32,7 +32,7 @@
 #if BOARD_SMK37
 #define LDR_APP_HI 0x9D000u
 #define LDR_REC_LO 0x9D000u
-#define LDR_REC_HI 0xC0000u
+#define LDR_REC_HI 0xFC000u
 #else
 #define LDR_APP_HI 0x93000u
 #define LDR_REC_LO 0x93000u                     /* update records live above the app ... */

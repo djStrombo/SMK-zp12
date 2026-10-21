@@ -14,7 +14,7 @@
 #define FELUCCA_USB_PID 0x0002
 #if BOARD_SMK37
 #define FELUCCA_ID "ota-SMK-37 Pro_900"
-#define FL_RANGE_OK(off, n) (FL_IN(off, n, 0x4000u, 0x9D000u) || FL_IN(off, n, 0x9D000u, 0xC0000u))
+#define FL_RANGE_OK(off, n) (FL_IN(off, n, 0x4000u, 0x9D000u) || FL_IN(off, n, 0x9D000u, 0xFC000u))
 #else
 #define FELUCCA_ID "ota-FM-1_900"
 /* the loader may write the app area and erase update records; never the head */
