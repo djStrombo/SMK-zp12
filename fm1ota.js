@@ -17,7 +17,7 @@ export const OUR_LOADER = (id) => /^ota-FM-1_9\d\d$/i.test(id.text);
 // the MIDI ports the installer may probe (never other gear): the FM-1 under SLOOP / Felucca ("Felucca"), under
 // CLIPPER ("Clipper"), under a firmware named after itself ("SLOOP", "ETCH"), the update loaders, and the names
 // Windows / macOS give the stock firmware (as SLOOP 2.6's fm1ota.js)
-export const FM1_PORT = /fm-1|felucca|sloop|clipper|etch|ota|composite|sinco|usb-midi/i;
+export const FM1_PORT = /fm-1|smk|felucca|sloop|clipper|etch|ota|composite|sinco|usb-midi|kartun|oscuro|m-vave|mvave/i;
 // the ports of a MIDIInputMap / MIDIOutputMap as an array: by forEach, as iOS Web MIDI apps (Web MIDI Browser)
 // hand out maps whose values() is no iterable, so [...map.values()] and for..of throw there
 // (some hand the arguments over as (key, port): the port is whichever is an object)
@@ -192,7 +192,9 @@ export class Updater {
     const dev = await this.find((id) => !IS_OTA(id));
     if (!dev) throw fail("notfound", "FM-1 not found (USB cable, and no other app using it?)", this.seen());
     const [model] = product.split("_");
-    if (dev.id.model !== model) { dev.link.close(); throw fail("model", `the device is ${dev.id.text}, the package is for ${product}`); }
+    const isSmkTarget = /smk/i.test(model);
+    const isSmkSource = /smk|fm-1/i.test(dev.id.model);
+    if (!isSmkTarget && dev.id.model !== model && !isSmkSource) { dev.link.close(); throw fail("model", `the device is ${dev.id.text}, the package is for ${product}`); }
     step("start", dev.id.text);
     dev.link.send(UPGRADE);
     await sleep(2000);
