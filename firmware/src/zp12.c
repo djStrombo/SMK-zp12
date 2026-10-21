@@ -463,7 +463,7 @@ static void zp12_main(void)
             prev = t;
             if (t - drawn >= 40u) { ui_splash(t); drawn = t; }
         }
-        while (fm1_in.notes || fm1_in.buttons)          /* (the key that cut it short is not played) */
+        while ((fm1_in.notes || fm1_in.buttons) && (fm1_ms - t0 < 4000u))          /* (the key that cut it short is not played) */
             fm1_service();
     }
     ui.force = 1;
@@ -1659,9 +1659,13 @@ static void zp12_main(void)
         if (smk_midi_clock_send && sq.playing) {
             static uint32_t last_sq_pos_tick = 0;
             uint32_t cur_sq_pos_tick = sq.pos >> 16;
-            while (last_sq_pos_tick != cur_sq_pos_tick) {
-                last_sq_pos_tick++;
-                midi_out_event(0x05u | (0xF8u << 8));
+            if (cur_sq_pos_tick >= last_sq_pos_tick && (cur_sq_pos_tick - last_sq_pos_tick) <= 24u) {
+                while (last_sq_pos_tick < cur_sq_pos_tick) {
+                    last_sq_pos_tick++;
+                    midi_out_event(0x0Fu | (0xF8u << 8));
+                }
+            } else {
+                last_sq_pos_tick = cur_sq_pos_tick;
             }
         }
         if (smk_midi_mode && ui.page != PG_OPTS) {
