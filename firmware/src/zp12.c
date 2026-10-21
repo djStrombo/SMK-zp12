@@ -163,11 +163,9 @@ static const char *const ARP_RATE_NAMES[8] = {
     "ARP 1/32T"
 };
 
-static const char *const CLOCK_MODE_NAMES[4] = {
+static const char *const CLOCK_MODE_NAMES[2] = {
     "INT",
-    "USB",
-    "TRS",
-    "AUTO"
+    "USB"
 };
 
 static const char *const SCALE_NAMES[5] = {
@@ -585,7 +583,7 @@ static void zp12_main(void)
                                 m_note = sp_clamp(m_note, 0, 127);
                                 int32_t q_note = smk_quantize_note(m_note);
                                 uint32_t raw_v = fm1_in.key_vel[ki];
-                                uint32_t vel = smk_full_velocity ? 127u : (raw_v ? raw_v : 96u);
+                                uint32_t vel = smk_velocity_ctrl ? (raw_v ? raw_v : 96u) : 127u;
                                 smk_arp_cur_notes[smk_arp_cur_cnt++] = (uint8_t)q_note;
                                 midi_out_event(0x09u | ((0x90u | (smk_midi_ch & 0x0Fu)) << 8) | ((uint32_t)q_note << 16) | (vel << 24));
                             }
@@ -621,7 +619,7 @@ static void zp12_main(void)
                             m_note = sp_clamp(m_note, 0, 127);
                             int32_t q_note = smk_quantize_note(m_note);
                             uint32_t raw_v = fm1_in.key_vel[ki];
-                            uint32_t vel = smk_full_velocity ? 127u : (raw_v ? raw_v : 96u);
+                            uint32_t vel = smk_velocity_ctrl ? (raw_v ? raw_v : 96u) : 127u;
                             smk_arp_cur_notes[smk_arp_cur_cnt++] = (uint8_t)q_note;
                             midi_out_event(0x09u | ((0x90u | (smk_midi_ch & 0x0Fu)) << 8) | ((uint32_t)q_note << 16) | (vel << 24));
                         }
@@ -647,7 +645,7 @@ static void zp12_main(void)
                         int32_t cnotes[5];
                         uint32_t cnt = smk_get_chord_notes(q_note, cnotes);
                         uint32_t raw_v = fm1_in.key_vel[ki];
-                        uint32_t vel = smk_full_velocity ? 127u : (raw_v ? raw_v : 96u);
+                        uint32_t vel = smk_velocity_ctrl ? (raw_v ? raw_v : 96u) : 127u;
 
                         smk_key_chord_cnt[ki] = (uint8_t)cnt;
                         for (uint32_t c = 0; c < cnt; c++) {
@@ -699,7 +697,7 @@ static void zp12_main(void)
                     uint16_t pbit = 1u << pi;
                     if (pd & pbit) {
                         uint32_t raw_v = fm1_in.pad_vel[pi] ? fm1_in.pad_vel[pi] : fm1_in.pad_press[pi];
-                        uint32_t vel = smk_full_velocity ? 127u : (raw_v ? raw_v : 100u);
+                        uint32_t vel = smk_velocity_ctrl ? (raw_v ? raw_v : 100u) : 127u;
                         midi_out_event(0x09u | ((0x90u | (smk_midi_pad_ch & 0x0Fu)) << 8) | ((pad_base + pi) << 16) | ((vel & 0x7Fu) << 24));
                         uint32_t pad_num = (smk_midi_pad_bank ? 16u : 0u) + pi + 1u;
                         uint32_t note = pad_base + pi;
@@ -720,7 +718,7 @@ static void zp12_main(void)
                     uint16_t pbit = 1u << pi;
                     if (pd & pbit) {
                         uint32_t raw_v = fm1_in.pad_vel[pi] ? fm1_in.pad_vel[pi] : fm1_in.pad_press[pi];
-                        uint32_t vel = smk_full_velocity ? 127u : (raw_v ? raw_v : 100u);
+                        uint32_t vel = smk_velocity_ctrl ? (raw_v ? raw_v : 100u) : 127u;
                         uint32_t snd = (ui.pair ? 16u : 0u) + pi;
                         pad_hit(snd, vel);
                     }
@@ -809,10 +807,8 @@ static void zp12_main(void)
                     patch_alone_done = 1;
                     if (ui.page == PG_OPTS) {
                         page(PG_HOME);
-                        ui_say("OPTIONS: CLOSED");
                     } else {
                         page(PG_OPTS);
-                        ui_say("OPTIONS MENU");
                     }
                     ui.force = 1;
                 }
@@ -822,7 +818,6 @@ static void zp12_main(void)
                         /* Short tap */
                         if (ui.page == PG_OPTS) {
                             page(PG_HOME);
-                            ui_say("OPTIONS: CLOSED");
                             ui.force = 1;
                         } else if (!smk_midi_mode) {
                             ui.steps = 0;
@@ -1490,8 +1485,10 @@ static void zp12_main(void)
                         if (ui.page == PG_OPTS) {
                             if (i < 4u) {
                                 knob(i, d);
-                                ui.force = 1;
+                            } else {
+                                knob(i - 4u, d);
                             }
+                            ui.force = 1;
                         } else {
                             uint8_t bt_down = (fm1_in.buttons >> 11) & 1u;
                             if (i == 4 && glo_held) {
@@ -1623,9 +1620,7 @@ static void zp12_main(void)
             if (raw_st >= 0xF8u) {
                 uint8_t cable = (uint8_t)((pk & 0x10u) ? 1u : 0u); /* 0 = USB, 1 = TRS */
                 uint8_t clk_accepted = 0;
-                if (smk_midi_clock_mode == 1 && cable == 0) clk_accepted = 1;      /* USB */
-                else if (smk_midi_clock_mode == 2 && cable == 1) clk_accepted = 1; /* TRS */
-                else if (smk_midi_clock_mode == 3) clk_accepted = 1;              /* AUTO */
+                if (smk_midi_clock_mode == 1 && !smk_midi_clock_send && cable == 0) clk_accepted = 1;      /* USB RTN */
 
                 if (clk_accepted) {
                     if (raw_st == 0xF8u) {
@@ -1656,7 +1651,7 @@ static void zp12_main(void)
             }
         }
 #if BOARD_SMK37
-        if (smk_midi_clock_send && sq.playing) {
+        if (smk_midi_clock_send && smk_midi_clock_mode == 1 && sq.playing) {
             static uint32_t last_sq_pos_tick = 0;
             uint32_t cur_sq_pos_tick = sq.pos >> 16;
             if (cur_sq_pos_tick >= last_sq_pos_tick && (cur_sq_pos_tick - last_sq_pos_tick) <= 24u) {

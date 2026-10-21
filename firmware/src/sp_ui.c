@@ -43,7 +43,7 @@ enum { B_OCTDN = 0, B_OCTUP = 1, B_FX = 2, B_SEL = 3, B_ENV = 4, B_LFO = 5, B_ED
        B_SAVE = 9, B_ARP = 10, B_SEQ = 11, B_PLAY = 12, B_REC = 13 };
 /* the page families (the button that opens them): their name, colour, pages; on a page the header says where
  * (EDIT > SOUND) and the tabs take the faders' place */
-static const char *const FAM_NAME[6] = {"MIX", "EDIT", "FX", "SEQ", "GLO", "OPTS"};
+static const char *const FAM_NAME[6] = {"MIX", "EDIT", "FX", "SEQ", "GLO", "OPTIONS"};
 static const uint8_t FAM_FIRST[6] = {PG_HOME, PG_WAVE, PG_FILT, PG_SEG, PG_SETUP, PG_OPTS}, FAM_N[6] = {1, 5, 4, 3, 3, 1};
 static uint32_t fam_of(uint32_t pg) { return pg == PG_HOME ? 0u : pg <= PG_SFX ? 1u : pg <= PG_REV ? 2u : pg <= PG_SONG ? 3u : pg <= PG_OUTPUT ? 4u : 5u; }
 static const char *const DTIME_NAME[6] = {"1/4", "1/8", "1/16", "1/32", "8T", "16T"};
@@ -228,13 +228,13 @@ static void page_cols(char lab[4][8], char val[4][12])   /* (val: an own sample'
         break;
     case PG_OPTS:
         if (smk_zp_midi_ch == 0) {
-            COL(0, "ZP CH", cat(val[0], "OMNI"));
+            COL(0, "MIDI", cat(val[0], "OMNI"));
         } else {
-            COL(0, "ZP CH", (cat(val[0], "CH "), num(val[0] + 3, (int32_t)smk_zp_midi_ch, smk_zp_midi_ch >= 10 ? 2 : 1, 0)));
+            COL(0, "MIDI", (cat(val[0], "CH "), num(val[0] + 3, (int32_t)smk_zp_midi_ch, smk_zp_midi_ch >= 10 ? 2 : 1, 0)));
         }
-        COL(1, "CLOCK", cat(val[1], CLOCK_MODE_NAMES[smk_midi_clock_mode % 4u]));
-        COL(2, "CLK OUT", cat(val[2], smk_midi_clock_send ? "ON" : "OFF"));
-        COL(3, "FULL VEL", cat(val[3], smk_full_velocity ? "ON" : "OFF"));
+        COL(1, "CLOCK", cat(val[1], smk_midi_clock_mode ? "USB" : "INT"));
+        COL(2, "ROUTE", cat(val[2], smk_midi_clock_send ? "SND" : "RTN"));
+        COL(3, "VEL", cat(val[3], smk_velocity_ctrl ? "ON" : "OFF"));
         break;
     default:
         break;
@@ -270,6 +270,10 @@ static void draw_tabs(void)
     char b[24], *p = b;
     b[0] = 0;
     cv_begin(232, 62, P_NAVY);
+    if (fm == 5u) {
+        cv_blit(4, 100);
+        return;
+    }
     cv_text_on(8, 2, &FONT_L, FAM_NAME[fm], FAM_COL[fm], P_NAVY);
     if (fm == 1u) {                              /* EDIT: the pad and its sample */
         pad_label(p, ui.sel);
@@ -317,8 +321,6 @@ static void draw_lcd(void)                      /* the LCD: big the state, below
         cv_rect(10, 34, (int32_t)(w < 212u ? w : 212u), 3, P_LCDINK);
     } else if (ui.msg[0] && (int32_t)(fm1_ms - ui.msg_until) < 0) {
         cat(big, ui.msg);
-    } else if (ui.page == PG_OPTS) {
-        cat(big, "OPTIONS");
 #if BOARD_SMK37
     } else if (smk_midi_mode) {
         p = cat(big, "K: ");
@@ -368,7 +370,7 @@ static void draw_lcd(void)                      /* the LCD: big the state, below
         cv_text_on(10, 6, &FONT_L, big, P_LCDINK, P_LCD);
         if (222 - text_w(&FONT_S, small) >= bw)
             cv_text_on(222 - text_w(&FONT_S, small), 4, &FONT_S, small, P_LCDDIM, P_LCD);
-        if (222 - text_w(&FONT_S, pg) >= bw)
+        if (ui.page != PG_OPTS && 222 - text_w(&FONT_S, pg) >= bw)
             cv_text_on(222 - text_w(&FONT_S, pg), 20, &FONT_S, pg, P_LCDDIM, P_LCD);
     }
     cv_rect(6, 40, 220, 1, P_LCDDIM);
@@ -508,7 +510,7 @@ static void ui_draw(void)
     uint32_t i, s, lit = 0, on = 0, bank = ui.sel / 8u;
     ui_note_played();
     sq.turn = sq.recording && (uint32_t)(fm1_ms - ui.turn_ms) < 600u ? 1u << ui.turn_pad : 0u;
-    if (ui.page != PG_HOME && UI_BACK_S[ui.back % 5u] && (uint32_t)(fm1_ms - ui.touch_ms) > UI_BACK_S[ui.back % 5u] * 1000u && !ui.steps)
+    if (ui.page != PG_HOME && ui.page != PG_OPTS && UI_BACK_S[ui.back % 5u] && (uint32_t)(fm1_ms - ui.touch_ms) > UI_BACK_S[ui.back % 5u] * 1000u && !ui.steps)
         ui.page = PG_HOME;                      /* untouched: the knobs are the faders again */
     if (ui.arm && (uint32_t)(fm1_ms - ui.arm_ms) > 1500u)
         ui.arm = 0;
@@ -662,8 +664,8 @@ static void key_down(uint32_t k, int erase)
         return;
     }
     if (ui.multi && !erase) {                    /* MULTI PITCH: the sound, F4 (key 12) as written */
-        uint32_t raw_v = fm1_in.key_vel[k];
-        uint32_t vel = smk_full_velocity ? 127u : (raw_v ? raw_v : 100u);
+        uint32_t raw_v = (k + SMK_KEY_F3 < FM1_NKEY && fm1_in.key_vel[k + SMK_KEY_F3]) ? fm1_in.key_vel[k + SMK_KEY_F3] : fm1_in.key_vel[k];
+        uint32_t vel = smk_velocity_ctrl ? (raw_v ? raw_v : 100u) : 127u;
         pad_hit_at(ui.sel, vel, (int32_t)k - 12);
         return;
     }
@@ -679,8 +681,8 @@ static void key_down(uint32_t k, int erase)
         return;
     }
     {
-        uint32_t raw_v = fm1_in.key_vel[k];
-        uint32_t vel = smk_full_velocity ? 127u : (raw_v ? raw_v : 100u);
+        uint32_t raw_v = (k + SMK_KEY_F3 < FM1_NKEY && fm1_in.key_vel[k + SMK_KEY_F3]) ? fm1_in.key_vel[k + SMK_KEY_F3] : fm1_in.key_vel[k];
+        uint32_t vel = smk_velocity_ctrl ? (raw_v ? raw_v : 100u) : 127u;
         pad_hit(pad, vel);
     }
 }
@@ -880,24 +882,22 @@ static void knob(uint32_t n, int32_t d)
     case PG_OPTS:
         if (n == 0u) {
             smk_zp_midi_ch = (uint8_t)sp_clamp((int32_t)smk_zp_midi_ch + one, 0, 16);
-            char msg[16] = "ZP CH: ";
+            char msg[16] = "MIDI: ";
             if (smk_zp_midi_ch == 0) cat(msg, "OMNI");
-            else num(msg + 7, (int32_t)smk_zp_midi_ch, smk_zp_midi_ch >= 10 ? 2 : 1, 0);
+            else { cat(msg, "CH "); num(msg + 9, (int32_t)smk_zp_midi_ch, smk_zp_midi_ch >= 10 ? 2 : 1, 0); }
             ui_say(msg);
         }
         if (n == 1u) {
-            smk_midi_clock_mode = (uint8_t)sp_clamp((int32_t)smk_midi_clock_mode + one, 0, 3);
-            char msg[16] = "CLOCK: ";
-            cat(msg, CLOCK_MODE_NAMES[smk_midi_clock_mode % 4u]);
-            ui_say(msg);
+            smk_midi_clock_mode = (uint8_t)sp_clamp((int32_t)smk_midi_clock_mode + one, 0, 1);
+            ui_say(smk_midi_clock_mode ? "CLOCK: USB" : "CLOCK: INT");
         }
         if (n == 2u) {
             smk_midi_clock_send ^= 1u;
-            ui_say(smk_midi_clock_send ? "CLK OUT: ON" : "CLK OUT: OFF");
+            ui_say(smk_midi_clock_send ? "ROUTE: SND" : "ROUTE: RTN");
         }
         if (n == 3u) {
-            smk_full_velocity ^= 1u;
-            ui_say(smk_full_velocity ? "FULL VEL: ON" : "FULL VEL: OFF");
+            smk_velocity_ctrl ^= 1u;
+            ui_say(smk_velocity_ctrl ? "VEL: ON" : "VEL: OFF");
         }
         break;
     default:
@@ -921,6 +921,13 @@ static void tap_tempo(void)                      /* ENV: the tempo of the last t
 /* button b pressed (seq: SEQ was held at the time: OCT pages the step grid's bars) */
 static void button(uint32_t b)
 {
+    if (ui.page == PG_OPTS) {
+        if (b == B_HOME) {
+            page(PG_HOME);
+            ui.force = 1;
+        }
+        return;
+    }
     if ((b == B_OCTDN || b == B_OCTUP) && (ui.held >> B_FX) & 1u) {   /* FX held: REV / ECHO THROW while held (zp12.c) */
         ui.fx_used = 1;
         ui_say(b == B_OCTDN ? "REV THROW" : "ECHO THROW");
