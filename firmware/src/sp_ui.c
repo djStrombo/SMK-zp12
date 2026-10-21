@@ -587,12 +587,12 @@ static void pad_hit(uint32_t k, uint32_t vel) { pad_hit_at(k, vel, 0); }
 static uint32_t white_of(uint32_t k)
 {
     static const uint8_t WHITE_OF[37] = {
-        29, 0xFF, 30, 0xFF, 31,              /* 0..4: C3 (29), D3 (30), E3 (31) */
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF,         /* 0..4: C3..E3 omitted when !ui.multi */
         0, 0xFF, 1, 0xFF, 2, 0xFF, 3, 4,     /* 5..12: F3 (0), G3 (1), A3 (2), B3 (3), C4 (4) */
         0xFF, 5, 0xFF, 6, 7, 0xFF, 8, 0xFF,  /* 13..20: D4 (5), E4 (6), F4 (7), G4 (8) */
         9, 0xFF, 10, 11, 0xFF, 12, 0xFF, 13, /* 21..28: A4 (9), B4 (10), C5 (11), D5 (12), E5 (13) */
         14, 0xFF, 15,                        /* 29..31: F5 (14), G5 (15) */
-        0xFF, 16, 0xFF, 17, 18               /* 32..36: A5 (16), B5 (17), C6 (18) */
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF         /* 32..36: G#5..C6 omitted when !ui.multi */
     };
     return k < 37u ? WHITE_OF[k] : 0xFFu;
 }
@@ -600,24 +600,21 @@ static uint32_t white_of(uint32_t k)
 static uint32_t black_loop_of(uint32_t k)
 {
     static const uint8_t BLACK_LOOP[37] = {
-        0xFF, 13, 0xFF, 14, 0xFF,            /* 0..4: C#3 = Loop 13, D#3 = Loop 14 */
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF,         /* 0..4: C3..E3 omitted when !ui.multi */
         0xFF, 0, 0xFF, 1, 0xFF, 2, 0xFF, 0xFF,/* 5..12: F#3 = Loop 0, G#3 = Loop 1, A#3 = Loop 2 */
         3, 0xFF, 4, 0xFF, 0xFF, 5, 0xFF, 6,  /* 13..20: C#4 = Loop 3, D#4 = Loop 4, F#4 = Loop 5, G#4 = Loop 6 */
         0xFF, 7, 0xFF, 0xFF, 8, 0xFF, 9, 0xFF,/* 21..28: A#4 = Loop 7, C#5 = Loop 8, D#5 = Loop 9 */
         0xFF, 10, 0xFF,                      /* 29..31: F#5 = Loop 10 */
-        11, 0xFF, 12, 0xFF, 0xFF             /* 32..36: G#5 = Loop 11, A#5 = Loop 12 */
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF         /* 32..36: G#5..C6 omitted when !ui.multi */
     };
     return k < 37u ? BLACK_LOOP[k] : 0xFFu;
 }
 
-static uint32_t key_pad(uint32_t k)            /* white keys 0-15: bank A (C), 16+: B (D) */
+static uint32_t key_pad(uint32_t k)            /* white keys 0-15: bank A (0..15) or B (16..31) */
 {
     uint32_t w = white_of(k);
-    if (w == 0xFFu) return 0xFFu;
-    if (w < 16u) return ui.pair * 16u + w;
-    if (w >= 16u && w < 19u) return (ui.pair ? 0u : 16u) + (w - 16u);
-    if (w >= 29u && w <= 31u) return (ui.pair ? 0u : 16u) + (w - 16u);
-    return 0xFFu;
+    if (w == 0xFFu || w >= 16u) return 0xFFu;
+    return ui.pair * 16u + w;
 }
 
 /* loop (segment) b: now when stopped, else at the end of the loop playing (a black key, a MIDI Program Change); say it */
@@ -637,6 +634,8 @@ static void key_down(uint32_t k, int erase)
     uint32_t pad;
     if (k >= 37u)
         return;
+    if (!ui.multi && (k < 5u || k > 31u))
+        return; /* omit the rest of the keyboard if not in multipitch */
     if ((ui.held >> B_FX) & 1u) {                /* FX held: white keys 1-4 punch in (zp12.c, sp_punch.c), no pad */
         static const char *const PUNCH[4] = {"ROLL 1/8", "ROLL 1/16", "REVERSE", "TAPE STOP"};
         ui.fx_used = 1;
