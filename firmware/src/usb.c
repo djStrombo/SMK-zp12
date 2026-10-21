@@ -646,6 +646,14 @@ static void sysex_byte(uint8_t b)
 static void midi_in_event(uint32_t pkt)
 {
     uint32_t cin = pkt & 15u, st = (pkt >> 8) & 0xFFu;
+    if (st >= 0xF8u) {                                 /* realtime: clock, transport (0xF8, 0xFA, 0xFB, 0xFC, etc.) */
+        if (mi_w - mi_r < MQ) {
+            midi_in_q[mi_w % MQ] = 0xFu | st << 8;
+            RING_PUBLISH();
+            mi_w++;
+        }
+        return;
+    }
     if (cin >= 4u && cin <= 7u) {                      /* SysEx */
         uint32_t k, nb = cin == 4u || cin == 7u ? 3u : cin == 6u ? 2u : 1u;
         for (k = 0; k < nb; k++)
@@ -657,14 +665,6 @@ static void midi_in_event(uint32_t pkt)
 #if FELUCCA_OTA
         sx_collect = 0;
 #endif
-    }
-    if (cin == 0xFu && (st == 0xF8u || st == 0xFAu || st == 0xFBu || st == 0xFCu)) {   /* clock, transport */
-        if (mi_w - mi_r < MQ) {
-            midi_in_q[mi_w % MQ] = 0xFu | st << 8;
-            RING_PUBLISH();
-            mi_w++;
-        }
-        return;
     }
     if (cin >= 8u && cin <= 0xEu && (st >> 4) == cin && !((pkt >> 16) & 0x80u) &&
         (cin == 0xCu || cin == 0xDu || !(pkt & 0x80000000u))) {

@@ -254,7 +254,10 @@ static volatile uint8_t smk_arp_mode;         /* 0 = ROLL, 1 = UP, 2 = DOWN, 3 =
 static volatile uint8_t smk_arp_rate = 4;     /* 0:1/4, 1:1/4T, 2:1/8, 3:1/8T, 4:1/16, 5:1/16T, 6:1/32, 7:1/32T */
 static volatile uint8_t smk_zp_midi_ch = 1;   /* 1..16 = CH 1..16 */
 static volatile uint8_t smk_midi_clock_mode = 0; /* 0 = INT, 1 = USB, 2 = TRS, 3 = AUTO */
-static volatile uint8_t smk_midi_clock_send = 0; /* 0 = OFF, 1 = ON */
+static volatile uint8_t smk_midi_clock_send = 1; /* 0 = OFF (RTN), 1 = ON (SND) */
+static volatile uint32_t smk_last_ext_clk_ms = 0;
+static volatile uint32_t smk_clk_beat_t0 = 0;
+static volatile uint8_t smk_clk_pulse_cnt = 0;
 static volatile uint8_t smk_velocity_ctrl = 1;   /* 1 = Dynamic Velocity ON, 0 = Full Velocity (127) */
 static volatile uint8_t smk_midi_ch_evt;      /* 0 = none, 1..16 = newly selected channel to announce on UI */
 static volatile uint8_t smk_midi_pad_ch_evt;  /* 0 = none, 1..16 = newly selected pad channel to announce on UI */

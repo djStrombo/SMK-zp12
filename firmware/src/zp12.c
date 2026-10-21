@@ -1159,13 +1159,12 @@ static void zp12_main(void)
         if (b & (1u << ACT_PLAY)) {
             b &= ~(1u << ACT_PLAY);
             if (smk_midi_mode) {
-                sq.playing ^= 1u;
-                midi_out_event(sq.playing ? (0x05u | (0xFAu << 8)) : (0x05u | (0xFCu << 8)));
-                if (!sq.playing) {
+                sq_post(sq.playing ? RQ_STOP : RQ_PLAY, 0, 0);
+                if (sq.playing) {
                     /* All notes off on pad channel */
                     midi_out_event(0x0Bu | ((0xB0u | (smk_midi_pad_ch & 0x0Fu)) << 8) | (123u << 16) | (0u << 24));
                 }
-                ui_say(sq.playing ? "MIDI: START" : "MIDI: STOP");
+                ui_say(sq.playing ? "MIDI: STOP" : "MIDI: START");
                 ui.force = 1;
             } else {
                 sq_post(sq.playing ? RQ_STOP : RQ_PLAY, 0, 0);
@@ -1645,26 +1644,35 @@ static void zp12_main(void)
                 uint8_t cable = (uint8_t)((pk & 0x10u) ? 1u : 0u); /* 0 = USB, 1 = TRS */
                 uint8_t clk_accepted = 0;
                 if (smk_midi_clock_mode == 1 && !smk_midi_clock_send && cable == 0) clk_accepted = 1;      /* USB RTN */
-                else if (smk_midi_clock_mode == 2 && cable == 1) clk_accepted = 1;                         /* TRS */
 
                 if (clk_accepted) {
                     if (raw_st == 0xF8u) {
-                        static uint32_t clk_beat_t0 = 0;
-                        static uint8_t clk_pulse_cnt = 0;
-                        if (!clk_pulse_cnt) clk_beat_t0 = fm1_ms;
-                        clk_pulse_cnt++;
-                        if (clk_pulse_cnt >= 24u) {
-                            uint32_t dur = fm1_ms - clk_beat_t0;
-                            clk_pulse_cnt = 0;
-                            clk_beat_t0 = fm1_ms;
-                            if (dur >= 150u && dur <= 3000u) {
-                                sq.bpm10 = (uint16_t)(600000u / dur);
+                        smk_last_ext_clk_ms = fm1_ms;
+                        if (!smk_clk_pulse_cnt) {
+                            smk_clk_beat_t0 = fm1_ms;
+                            smk_clk_pulse_cnt = 1;
+                        } else {
+                            smk_clk_pulse_cnt++;
+                            if (smk_clk_pulse_cnt >= 6u) {
+                                uint32_t dt = fm1_ms - smk_clk_beat_t0;
+                                smk_clk_beat_t0 = fm1_ms;
+                                smk_clk_pulse_cnt = 0;
+                                if (dt >= 50u && dt <= 500u) {
+                                    uint32_t new_bpm10 = 150000u / dt;
+                                    if (new_bpm10 >= 400u && new_bpm10 <= 2400u) {
+                                        sq.bpm10 = (uint16_t)new_bpm10;
+                                    }
+                                }
                             }
                         }
                     } else if (raw_st == 0xFAu || raw_st == 0xFBu) {
                         sq_post(RQ_PLAY, 0, 0);
+                        smk_last_ext_clk_ms = fm1_ms;
+                        smk_clk_pulse_cnt = 0;
                     } else if (raw_st == 0xFCu) {
                         sq_post(RQ_STOP, 0, 0);
+                        smk_last_ext_clk_ms = 0;
+                        smk_clk_pulse_cnt = 0;
                     }
                 }
             } else if (ch == (smk_zp_midi_ch - 1)) {
@@ -1682,20 +1690,11 @@ static void zp12_main(void)
             }
         }
 #if BOARD_SMK37
-        if (smk_midi_clock_send && sq.playing) {
-            static uint32_t last_sq_pos_tick = 0;
-            uint32_t cur_sq_pos_tick = sq.pos >> 16;
-            if (cur_sq_pos_tick >= last_sq_pos_tick && (cur_sq_pos_tick - last_sq_pos_tick) <= 24u) {
-                while (last_sq_pos_tick < cur_sq_pos_tick) {
-                    last_sq_pos_tick++;
-                    if (smk_midi_clock_mode == 1) {
-                        midi_out_event(0x0Fu | (0xF8u << 8));
-                    } else if (smk_midi_clock_mode == 2) {
-                        smk_trs_tx_byte(0xF8u);
-                    }
-                }
-            } else {
-                last_sq_pos_tick = cur_sq_pos_tick;
+        if (smk_midi_clock_mode == 1 && !smk_midi_clock_send) {
+            if (sq.playing && smk_last_ext_clk_ms && (uint32_t)(fm1_ms - smk_last_ext_clk_ms) > 500u) {
+                sq_post(RQ_STOP, 0, 0);
+                smk_last_ext_clk_ms = 0;
+                smk_clk_pulse_cnt = 0;
             }
         }
         if (smk_midi_mode && ui.page != PG_OPTS) {

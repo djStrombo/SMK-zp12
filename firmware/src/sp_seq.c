@@ -215,8 +215,15 @@ static void sq_play(uint32_t on)
         sq.dub_wait = 0;
         sq.playing = 1;
 #if BOARD_SMK37
-        smk_trs_tx_byte(0xFAu);
-        smk_trs_tx_byte(0xF8u);
+        if (smk_midi_clock_send) {
+            if (smk_midi_clock_mode == 1) {
+                midi_out_event(0x0Fu | (0xFAu << 8));
+                midi_out_event(0x0Fu | (0xF8u << 8));
+            } else if (smk_midi_clock_mode == 2) {
+                smk_trs_tx_byte(0xFAu);
+                smk_trs_tx_byte(0xF8u);
+            }
+        }
 #endif
     } else {
         sq_stop_rec();
@@ -224,7 +231,13 @@ static void sq_play(uint32_t on)
         sq.countin = 0;
         sq.dub_wait = 0;
 #if BOARD_SMK37
-        smk_trs_tx_byte(0xFCu);
+        if (smk_midi_clock_send) {
+            if (smk_midi_clock_mode == 1) {
+                midi_out_event(0x0Fu | (0xFCu << 8));
+            } else if (smk_midi_clock_mode == 2) {
+                smk_trs_tx_byte(0xFCu);
+            }
+        }
 #endif
     }
 }
@@ -402,11 +415,15 @@ static void sq_block(void)
     len = sq_len(s);
     to = sq.pos >> 16;
 #if BOARD_SMK37
-    {
+    if (smk_midi_clock_send) {
         uint32_t c_from = from / 4u;
         uint32_t c_to   = to / 4u;
         while (c_from < c_to) {
-            smk_trs_tx_byte(0xF8u);
+            if (smk_midi_clock_mode == 1) {
+                midi_out_event(0x0Fu | (0xF8u << 8));
+            } else if (smk_midi_clock_mode == 2) {
+                smk_trs_tx_byte(0xF8u);
+            }
             c_from++;
         }
     }
